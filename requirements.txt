@@ -1,6 +1,10 @@
-# Dev environment
-pip
-autopep8
-
-# App
-flask
+Flask==3.0.0
+Flask-SQLAlchemy==3.1.1
+requests==2.31.0
+pandas==2.1.3
+numpy==1.26.2
+sqlalchemy==2.0.23
+scipy==1.11.4
+reportlab==4.0.7
+python-dotenv==1.0.0
+Werkzeug==3.0.1

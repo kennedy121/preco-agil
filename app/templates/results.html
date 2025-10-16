@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Resultado da Pesquisa - {{ query }}</title>
+</head>
+<body>
+    <a href="/">&larr; Nova Busca</a>
+    <hr>
+
+    <h1>Relatório de Pesquisa de Preços</h1>
+    <p><strong>Termo Pesquisado:</strong> {{ query }}</p>
+
+    {% if error %}
+        <div class="error">
+            <h2>Erro na Pesquisa</h2>
+            <p>{{ error }}</p>
+        </div>
+    {% else %}
+        <!-- 1. Seção de Análise Estatística (Sempre exibida) -->
+        <div class="analysis-section">
+            <h2>Análise Estatística</h2>
+            {% if analysis and not analysis.error %}
+                <p><strong>Valor Recomendado:</strong> R$ {{ "%.2f"|format(analysis.recommended_value) }}</p>
+                <p><strong>Método Utilizado:</strong> {{ analysis.recommendation_method }}</p>
+                <p><strong>Justificativa:</strong> {{ analysis.justification }}</p>
+                <details>
+                    <summary>Ver Detalhes da Análise</summary>
+                    <ul>
+                        <li>Amostras Válidas: {{ analysis.valid_samples }} / {{ analysis.total_samples }}</li>
+                        <li>Preço Mínimo: R$ {{ "%.2f"|format(analysis.min_price) }}</li>
+                        <li>Preço Máximo: R$ {{ "%.2f"|format(analysis.max_price) }}</li>
+                        <li>Média: R$ {{ "%.2f"|format(analysis.mean) }}</li>
+                        <li>Mediana: R$ {{ "%.2f"|format(analysis.median) }}</li>
+                        <li>Coeficiente de Variação (CV): {{ "%.2f"|format(analysis.cv) }}%</li>
+                        <li>Outliers Identificados: {{ analysis.outliers_identified|join(', ') or 'Nenhum' }}</li>
+                    </ul>
+                </details>
+            {% elif analysis and analysis.error %}
+                <p style="color: orange;"><strong>Análise não realizada:</strong> {{ analysis.error }}</p>
+            {% endif %}
+        </div>
+
+        <!-- 2. Seção de Itens Coletados (Exibida apenas se houver preços) -->
+        {% if prices %}
+            <div class="items-section">
+                <h2>Itens Coletados ({{ prices|length }})</h2>
+                <table border="1" style="width:100%; border-collapse: collapse;">
+                    <thead>
+                        <tr>
+                            <th>Fonte</th>
+                            <th>Descrição</th>
+                            <th>Valor Unitário</th>
+                            <th>Data</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for price in prices %}
+                            <tr>
+                                <td>{{ price.fonte }}</td>
+                                <td>{{ price.descricao_item }}</td>
+                                <td>R$ {{ "%.2f"|format(price.valor_unitario) }}</td>
+                                <td>{{ price.data_compra }}</td>
+                            </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        {% else %}
+            <div class="no-results">
+                <h2>Nenhum preço foi encontrado</h2>
+                <p>Sua busca por "<strong>{{ query }}</strong>" não retornou nenhum resultado das fontes de dados consultadas.</p>
+            </div>
+        {% endif %}
+    {% endif %}
+</body>
+</html>

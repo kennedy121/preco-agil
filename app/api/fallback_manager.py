@@ -1,0 +1,1 @@
+# Sistema de fallback robusto
