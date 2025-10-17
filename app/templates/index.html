@@ -1,16 +1,251 @@
-<!DOCTYPE html>
-<html lang="pt-br">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Busca de Preços de Referência</title>
-</head>
-<body>
-    <h1>Busca de Preços de Referência</h1>
-    <form action="/search" method="get">
-        <label for="query">Item a ser pesquisado:</label>
-        <input type="text" id="query" name="query" required>
-        <button type="submit">Buscar</button>
-    </form>
-</body>
-</html>
+
+{% extends "base.html" %}
+
+{% block title %}Buscar Item - Preço Ágil{% endblock %}
+
+{% block content %}
+<div class="container">
+    <!-- Header -->
+    <div class="row mb-4">
+        <div class="col text-center">
+            <div class="hero-section py-5">
+                <i class="bi bi-search display-1 text-primary mb-3"></i>
+                <h1 class="display-4 fw-bold text-primary">Pesquisa de Preços</h1>
+                <p class="lead text-muted">
+                    Conforme Lei 14.133/2021 e Portarias TCU 121, 122 e 123/2023
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Busca de Item -->
+    <div class="row justify-content-center mb-5">
+        <div class="col-lg-8">
+            <div class="card shadow-lg border-0">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-1-circle me-2"></i>Buscar Item nos Catálogos
+                    </h5>
+                </div>
+                <div class="card-body p-4">
+                    <form method="POST" action="{{ url_for('main.buscar_item') }}">
+                        <div class="mb-3">
+                            <label for="descricao" class="form-label fw-bold">
+                                <i class="bi bi-file-text me-1"></i>Descrição do Item
+                            </label>
+                            <input 
+                                type="text" 
+                                class="form-control form-control-lg" 
+                                id="descricao" 
+                                name="descricao"
+                                placeholder="Ex: cadeira escritório, computador, serviço limpeza..."
+                                value="{{ descricao_buscada or '' }}"
+                                required
+                                autofocus
+                            >
+                            <div class="form-text">
+                                <i class="bi bi-info-circle me-1"></i>
+                                Digite palavras-chave para buscar nos catálogos CATMAT (materiais) e CATSER (serviços)
+                            </div>
+                        </div>
+                        
+                        <button type="submit" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-search me-2"></i>Buscar Item
+                        </button>
+                    </form>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Resultados da Busca -->
+    {% if resultados %}
+    <div class="row justify-content-center">
+        <div class="col-lg-10">
+            <div class="card shadow border-0">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-2-circle me-2"></i>Resultados Encontrados
+                        <span class="badge bg-light text-success ms-2">{{ resultados.total }} itens</span>
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if resultados.materiais %}
+                    <h6 class="text-primary mb-3">
+                        <i class="bi bi-box-seam me-2"></i>Materiais (CATMAT)
+                        <span class="badge bg-primary">{{ resultados.materiais|length }}</span>
+                    </h6>
+                    <div class="table-responsive mb-4">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="120">Código</th>
+                                    <th>Descrição</th>
+                                    <th width="150" class="text-center">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in resultados.materiais[:20] %}
+                                <tr>
+                                    <td><code class="text-primary">{{ item.codigo }}</code></td>
+                                    <td>{{ item.descricao[:100] }}{% if item.descricao|length > 100 %}...{% endif %}</td>
+                                    <td class="text-center">
+                                        <button 
+                                            type="button"
+                                            class="btn btn-sm btn-primary btn-selecionar-item"
+                                            data-codigo="{{ item.codigo }}"
+                                            data-tipo="material"
+                                            data-descricao="{{ item.descricao }}"
+                                        >
+                                            <i class="bi bi-arrow-right-circle me-1"></i>Selecionar
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+
+                    {% if resultados.servicos %}
+                    <h6 class="text-info mb-3">
+                        <i class="bi bi-gear me-2"></i>Serviços (CATSER)
+                        <span class="badge bg-info">{{ resultados.servicos|length }}</span>
+                    </h6>
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead class="table-light">
+                                <tr>
+                                    <th width="120">Código</th>
+                                    <th>Descrição</th>
+                                    <th width="150" class="text-center">Ação</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for item in resultados.servicos[:20] %}
+                                <tr>
+                                    <td><code class="text-info">{{ item.codigo }}</code></td>
+                                    <td>{{ item.descricao[:100] }}{% if item.descricao|length > 100 %}...{% endif %}</td>
+                                    <td class="text-center">
+                                        <button 
+                                            type="button"
+                                            class="btn btn-sm btn-info btn-selecionar-item"
+                                            data-codigo="{{ item.codigo }}"
+                                            data-tipo="servico"
+                                            data-descricao="{{ item.descricao }}"
+                                        >
+                                            <i class="bi bi-arrow-right-circle me-1"></i>Selecionar
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+
+    <!-- Informações -->
+    <div class="row mt-5">
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 border-primary">
+                <div class="card-body text-center">
+                    <i class="bi bi-shield-check display-4 text-primary mb-3"></i>
+                    <h5 class="card-title">Conformidade Legal</h5>
+                    <p class="card-text text-muted small">
+                        100% conforme Lei 14.133/2021 e Portarias TCU
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 border-success">
+                <div class="card-body text-center">
+                    <i class="bi bi-graph-up display-4 text-success mb-3"></i>
+                    <h5 class="card-title">Análise Estatística</h5>
+                    <p class="card-text text-muted small">
+                        Mediana, média saneada e outliers identificados
+                    </p>
+                </div>
+            </div>
+        </div>
+        <div class="col-md-4 mb-3">
+            <div class="card h-100 border-info">
+                <div class="card-body text-center">
+                    <i class="bi bi-file-earmark-pdf display-4 text-info mb-3"></i>
+                    <h5 class="card-title">Relatório PDF</h5>
+                    <p class="card-text text-muted small">
+                        Documentação completa conforme Art. 29
+                    </p>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Pesquisa -->
+<div class="modal fade" id="modalPesquisa" tabindex="-1">
+    <div class="modal-dialog">
+        <div class="modal-content">
+            <form method="POST" action="{{ url_for('main.pesquisar_precos') }}">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-currency-dollar me-2"></i>Pesquisar Preços
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <input type="hidden" id="item_code" name="item_code">
+                    <input type="hidden" id="catalog_type" name="catalog_type">
+                    
+                    <div class="mb-3">
+                        <label class="form-label fw-bold">Item Selecionado</label>
+                        <div class="alert alert-info mb-0">
+                            <div><strong>Código:</strong> <span id="display_code">-</span></div>
+                            <div><strong>Descrição:</strong> <span id="display_desc">-</span></div>
+                        </div>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="region" class="form-label">
+                            <i class="bi bi-geo-alt me-1"></i>Região (Opcional)
+                        </label>
+                        <select class="form-select" id="region" name="region">
+                            <option value="">Todas as regiões</option>
+                            <option value="SP">São Paulo</option>
+                            <option value="RJ">Rio de Janeiro</option>
+                            <option value="MG">Minas Gerais</option>
+                            <option value="DF">Distrito Federal</option>
+                        </select>
+                    </div>
+
+                    <div class="mb-3">
+                        <label for="responsible" class="form-label">
+                            <i class="bi bi-person me-1"></i>Responsável
+                        </label>
+                        <input 
+                            type="text" 
+                            class="form-control" 
+                            id="responsible" 
+                            name="responsible"
+                            value="Sistema Automatizado"
+                            required
+                        >
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancelar</button>
+                    <button type="submit" class="btn btn-primary">
+                        <i class="bi bi-search me-1"></i>Iniciar Pesquisa
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+
+{% endblock %}

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Preço Ágil - Sistema de Pesquisa de Preços para Licitações">
+    <title>{% block title %}Preço Ágil{% endblock %}</title>
+    
+    <!-- Bootstrap CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    
+    <!-- Bootstrap Icons -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
+    
+    <!-- Custom CSS -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    
+    {% block extra_css %}{% endblock %}
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary">
+        <div class="container">
+            <a class="navbar-brand d-flex align-items-center" href="{{ url_for('main.index') }}">
+                <i class="bi bi-speedometer2 me-2 fs-4"></i>
+                <span class="fw-bold">Preço Ágil</span>
+                <span class="badge bg-light text-primary ms-2">v{{ app_version }}</span>
+            </a>
+            
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav ms-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.index') }}">
+                            <i class="bi bi-search me-1"></i>Nova Pesquisa
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="{{ url_for('main.historico') }}">
+                            <i class="bi bi-clock-history me-1"></i>Histórico
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="#" data-bs-toggle="modal" data-bs-target="#infoModal">
+                            <i class="bi bi-info-circle me-1"></i>Sobre
+                        </a>
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Flash Messages -->
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+            <div class="container mt-3">
+                {% for category, message in messages %}
+                    <div class="alert alert-{{ 'danger' if category == 'error' else category }} alert-dismissible fade show" role="alert">
+                        <i class="bi bi-{{ 'exclamation-triangle' if category == 'error' or category == 'danger' else 'check-circle' if category == 'success' else 'info-circle' }} me-2"></i>
+                        {{ message }}
+                        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+    {% endwith %}
+
+    <!-- Main Content -->
+    <main class="py-4">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer mt-auto py-4 bg-light">
+        <div class="container">
+            <div class="row">
+                <div class="col-md-6">
+                    <h5 class="text-primary">
+                        <i class="bi bi-speedometer2 me-2"></i>Preço Ágil
+                    </h5>
+                    <p class="text-muted small mb-2">{{ app_description }}</p>
+                    <p class="text-muted small">
+                        <i class="bi bi-shield-check me-1"></i>
+                        Conforme Lei 14.133/2021 e Portarias TCU 121, 122 e 123/2023
+                    </p>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-primary">Fontes de Dados</h6>
+                    <ul class="list-unstyled small text-muted">
+                        <li><i class="bi bi-check-circle-fill text-success me-1"></i>Painel de Preços (ME)</li>
+                        <li><i class="bi bi-check-circle-fill text-success me-1"></i>PNCP</li>
+                        <li><i class="bi bi-check-circle-fill text-success me-1"></i>ComprasNet</li>
+                        <li><i class="bi bi-check-circle-fill text-success me-1"></i>Portal da Transparência</li>
+                    </ul>
+                </div>
+                <div class="col-md-3">
+                    <h6 class="text-primary">Suporte</h6>
+                    <ul class="list-unstyled small">
+                        <li>
+                            <a href="#" class="text-decoration-none text-muted">
+                                <i class="bi bi-book me-1"></i>Documentação
+                            </a>
+                        </li>
+                        <li>
+                            <a href="#" class="text-decoration-none text-muted">
+                                <i class="bi bi-question-circle me-1"></i>FAQ
+                            </a>
+                        </li>
+                        <li>
+                            <a href="https://github.com" class="text-decoration-none text-muted" target="_blank">
+                                <i class="bi bi-github me-1"></i>GitHub
+                            </a>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+            <hr>
+            <div class="row">
+                <div class="col text-center text-muted small">
+                    © 2024 Preço Ágil | Desenvolvido para conformidade com a legislação de licitações
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Modal Info -->
+    <div class="modal fade" id="infoModal" tabindex="-1">
+        <div class="modal-dialog modal-lg">
+            <div class="modal-content">
+                <div class="modal-header bg-primary text-white">
+                    <h5 class="modal-title">
+                        <i class="bi bi-info-circle me-2"></i>Sobre o Preço Ágil
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <h6 class="text-primary">O que é?</h6>
+                    <p>O <strong>Preço Ágil</strong> é um sistema completo para realizar pesquisas de preços em licitações públicas, totalmente conforme a legislação vigente.</p>
+                    
+                    <h6 class="text-primary mt-3">Conformidade Legal</h6>
+                    <ul>
+                        <li><strong>Lei 14.133/2021</strong> - Nova Lei de Licitações (Art. 23)</li>
+                        <li><strong>Portaria TCU 121/2023</strong> - Pesquisa de Preços (Art. 26, 28, 29)</li>
+                        <li><strong>Portaria TCU 122/2023</strong> - Catálogo Eletrônico de Padronização</li>
+                        <li><strong>Portaria TCU 123/2023</strong> - Sistema Nacional de Preços de Referência</li>
+                    </ul>
+
+                    <h6 class="text-primary mt-3">Metodologia</h6>
+                    <p>O sistema utiliza metodologia estatística robusta:</p>
+                    <ul>
+                        <li><strong>Mediana</strong> - Preferencial para alta dispersão (CV > 30%)</li>
+                        <li><strong>Média Saneada</strong> - Para baixa dispersão, com remoção de outliers</li>
+                        <li><strong>Validação</strong> - CNPJ dos fornecedores via Receita Federal</li>
+                    </ul>
+
+                    <h6 class="text-primary mt-3">Fontes de Dados</h6>
+                    <div class="row">
+                        <div class="col-md-6">
+                            <div class="card border-success mb-2">
+                                <div class="card-body py-2">
+                                    <small class="d-block text-success fw-bold">PRIORIDADE 1</small>
+                                    <small>Painel de Preços (ME)</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card border-primary mb-2">
+                                <div class="card-body py-2">
+                                    <small class="d-block text-primary fw-bold">PRIORIDADE 2</small>
+                                    <small>PNCP</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card border-info mb-2">
+                                <div class="card-body py-2">
+                                    <small class="d-block text-info fw-bold">PRIORIDADE 3</small>
+                                    <small>ComprasNet</small>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="card border-secondary mb-2">
+                                <div class="card-body py-2">
+                                    <small class="d-block text-secondary fw-bold">PRIORIDADE 4</small>
+                                    <small>Portal da Transparência</small>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Fechar</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    
+    <!-- Custom JS -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    
+    {% block extra_js %}{% endblock %}
+</body>
+</html>

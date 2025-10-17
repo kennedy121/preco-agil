@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Cliente para catálogo CATMAT (CSV)
+Cliente para catálogo CATMAT (CSV) - VERSÃO ESPECÍFICA
 Preço Ágil - Sistema de Pesquisa de Preços
 """
 
@@ -22,10 +22,12 @@ class CATMATClient:
         """
         Carrega catálogo CATMAT do arquivo CSV
         
-        Formatos aceitos:
-        - codigo,descricao
-        - codigo;descricao
-        - Com ou sem cabeçalho
+        Formato específico:
+        - Linha 1: ",,,Consulta realizada em..."
+        - Linha 2: Cabeçalhos das colunas
+        - Linha 3+: Dados
+        - Coluna 7: Código do Item
+        - Coluna 8: Descrição do Item
         """
         try:
             if not os.path.exists(Config.CATMAT_FILE):
@@ -33,52 +35,75 @@ class CATMATClient:
                 self.catalog = {}
                 return
             
-            # Tenta com vírgula
-            try:
-                df = pd.read_csv(Config.CATMAT_FILE, encoding='utf-8')
-            except:
-                # Tenta com ponto-e-vírgula
-                try:
-                    df = pd.read_csv(Config.CATMAT_FILE, sep=';', encoding='utf-8')
-                except:
-                    # Tenta com latin1
-                    try:
-                        df = pd.read_csv(Config.CATMAT_FILE, encoding='latin1')
-                    except:
-                        df = pd.read_csv(Config.CATMAT_FILE, sep=';', encoding='latin1')
+            # Lê CSV pulando a primeira linha, usando linha 2 como header
+            df = pd.read_csv(
+                Config.CATMAT_FILE,
+                sep=',',
+                encoding='utf-8',
+                dtype=str,
+                skiprows=1,  # ⭐ Pula primeira linha
+                low_memory=False
+            )
             
-            # Normaliza nomes das colunas
-            df.columns = [self._normalize(col) for col in df.columns]
+            # Remove linhas completamente vazias
+            df = df.dropna(how='all')
             
-            # Identifica colunas de código e descrição
+            # Identifica colunas pelo nome
             codigo_col = None
             descricao_col = None
             
             for col in df.columns:
-                if 'codigo' in col or 'cod' in col:
+                col_lower = str(col).lower()
+                
+                if 'codigo' in col_lower and 'item' in col_lower:
                     codigo_col = col
-                if 'descricao' in col or 'desc' in col or 'nome' in col:
+                elif 'descricao' in col_lower and 'item' in col_lower:
                     descricao_col = col
             
+            # Fallback: usa colunas por índice
             if not codigo_col or not descricao_col:
-                print(f"⚠️ Colunas não identificadas. Usando as duas primeiras colunas")
-                codigo_col = df.columns[0]
-                descricao_col = df.columns[1]
+                if len(df.columns) >= 8:
+                    codigo_col = df.columns[6]  # ⭐ Coluna 7 (índice 6)
+                    descricao_col = df.columns[7]  # ⭐ Coluna 8 (índice 7)
+                    print(f"   ℹ️ Usando colunas por índice")
             
-            # Remove linhas vazias
-            df = df.dropna(subset=[codigo_col, descricao_col])
+            if not codigo_col or not descricao_col:
+                print(f"   ❌ Não foi possível identificar colunas")
+                self.catalog = {}
+                return
+            
+            # Limpa dados
+            df_clean = df[[codigo_col, descricao_col]].copy()
+            df_clean = df_clean.dropna()
+            
+            # Remove espaços em branco
+            df_clean[codigo_col] = df_clean[codigo_col].str.strip()
+            df_clean[descricao_col] = df_clean[descricao_col].str.strip()
+            
+            # Remove vazios
+            df_clean = df_clean[df_clean[codigo_col].astype(bool)]
+            df_clean = df_clean[df_clean[descricao_col].astype(bool)]
+            
+            # Remove linhas que parecem cabeçalhos
+            df_clean = df_clean[~df_clean[codigo_col].str.lower().str.contains('codigo', na=False)]
             
             # Cria dicionário código: descrição
             self.catalog = dict(zip(
-                df[codigo_col].astype(str).str.strip(),
-                df[descricao_col].astype(str).str.strip()
+                df_clean[codigo_col].astype(str),
+                df_clean[descricao_col].astype(str)
             ))
             
-            self.catalog_df = df
+            self.catalog_df = df_clean
             
             print(f"✅ CATMAT carregado: {len(self.catalog)} itens")
             print(f"   📄 Arquivo: {Config.CATMAT_FILE}")
-            print(f"   📊 Colunas: {codigo_col} | {descricao_col}")
+            print(f"   📊 Colunas: [{codigo_col}] → [{descricao_col}]")
+            
+            # Exemplos
+            if len(self.catalog) > 0:
+                print(f"   📝 Exemplos:")
+                for i, (cod, desc) in enumerate(list(self.catalog.items())[:3]):
+                    print(f"      • {cod}: {desc[:70]}...")
             
         except Exception as e:
             print(f"❌ Erro ao carregar CATMAT: {e}")
@@ -87,21 +112,15 @@ class CATMATClient:
             self.catalog = {}
     
     def search_by_description(self, description: str, limit: int = 50) -> List[Dict]:
-        """
-        Busca códigos CATMAT por descrição
-        
-        Args:
-            description: Descrição ou palavras-chave
-            limit: Máximo de resultados
-        
-        Returns:
-            Lista de dicionários com código e descrição
-        """
+        """Busca códigos CATMAT por descrição"""
         if not self.catalog:
             return []
         
-        # Normaliza e separa palavras
-        palavras = [self._normalize(p) for p in description.split() if len(p) > 2]
+        palavras = [
+            self._normalize(p) 
+            for p in description.split() 
+            if len(p) >= 3
+        ]
         
         if not palavras:
             return []
@@ -111,7 +130,6 @@ class CATMATClient:
         for codigo, desc in self.catalog.items():
             desc_norm = self._normalize(desc)
             
-            # Verifica se TODAS as palavras estão na descrição
             if all(palavra in desc_norm for palavra in palavras):
                 resultados.append({
                     "codigo": codigo,
@@ -125,30 +143,14 @@ class CATMATClient:
         return resultados
     
     def get_description(self, code: str) -> Optional[str]:
-        """
-        Retorna descrição de um código CATMAT
-        
-        Args:
-            code: Código do item
-        
-        Returns:
-            Descrição do item ou None
-        """
+        """Retorna descrição de um código CATMAT"""
         if not self.catalog:
             return None
         
         return self.catalog.get(str(code).strip())
     
     def search_by_code(self, code: str) -> Optional[Dict]:
-        """
-        Busca item por código exato
-        
-        Args:
-            code: Código do item
-        
-        Returns:
-            Dicionário com informações do item
-        """
+        """Busca item por código exato"""
         desc = self.get_description(code)
         
         if desc:
@@ -162,15 +164,12 @@ class CATMATClient:
     
     @staticmethod
     def _normalize(text: str) -> str:
-        """
-        Remove acentos e converte para minúsculas
+        """Remove acentos e normaliza texto"""
+        if not isinstance(text, str):
+            text = str(text)
         
-        Args:
-            text: Texto a normalizar
+        text = unicodedata.normalize("NFD", text.lower())
+        text = text.encode("ascii", "ignore").decode("utf-8")
+        text = ' '.join(text.split())
         
-        Returns:
-            Texto normalizado
-        """
-        return unicodedata.normalize("NFD", str(text).lower())\
-            .encode("ascii", "ignore")\
-            .decode("utf-8")
+        return text

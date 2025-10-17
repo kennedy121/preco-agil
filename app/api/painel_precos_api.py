@@ -1,65 +1,93 @@
+# -*- coding: utf-8 -*-
+"""Cliente para a API do Painel de Preços"""
+
 import requests
-import time
-from config import RETRY_ATTEMPTS, RETRY_DELAY, MAX_PRICE_AGE_DAYS
-from datetime import datetime, timedelta
+from typing import List, Dict, Optional
+from datetime import datetime
+import logging
+import json
 
-# This is a hypothetical API client. The endpoints and data structures are illustrative.
-BASE_URL = "https://paineldeprecos.planejamento.gov.br/api"
+# Configura o logger
+logger = logging.getLogger(__name__)
 
-def search_prices(description: str, retries=RETRY_ATTEMPTS):
+class PainelPrecosClient:
     """
-    Searches for prices in the Painel de Preços, which aggregates data from various sources.
-
-    Args:
-        description (str): The description of the item to search for.
-        retries (int): The number of times to retry the request.
-
-    Returns:
-        list: A list of dictionaries, each representing a found price.
+    Cliente para consumir a API do Painel de Preços do Governo Federal.
+    URL Base: https://paineldeprecos.planejamento.gov.br/api/
     """
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=MAX_PRICE_AGE_DAYS)
     
-    # The actual API endpoint might be different and require specific filters.
-    endpoint = f"{BASE_URL}/analise-precos/v1/precos"
-    params = {
-        "q": description,
-        "periodo_inicio": start_date.strftime('%Y-%m-%d'),
-        "periodo_fim": end_date.strftime('%Y-%m-%d'),
-        "page": 1,
-        "size": 100
-    }
+    BASE_URL = "https://paineldeprecos.planejamento.gov.br/api/v1"
 
-    for attempt in range(retries):
+    def __init__(self, timeout: int = 30):
+        self.timeout = timeout
+        self.headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "application/json"
+        }
+
+    def search_by_item(self, 
+                         item_code: str, 
+                         item_type: str,
+                         region: Optional[str] = None,
+                         max_days: int = 365) -> List[Dict]:
+        """
+        Busca preços de um item no Painel de Preços.
+        """
+        
+        endpoint = f"{self.BASE_URL}/contratacoes"
+        
+        params = {
+            "codigo_item": item_code,
+            "offset": 0,
+            "limit": 500 # Aumentar o limite para capturar mais dados
+        }
+
         try:
-            print(f"Attempt {attempt + 1}/{retries} to fetch data from Painel de Preços...")
-            response = requests.get(endpoint, params=params, timeout=30) # This can be slow
-            response.raise_for_status()
-            data = response.json().get("results", [])
-
-            prices = []
-            for item in data:
-                prices.append({
-                    "data_compra": item.get("data_compra"),
-                    "fornecedor_cnpj": item.get("cnpj_fornecedor"),
-                    "fornecedor_nome": item.get("nome_fornecedor"),
-                    "orgao_comprador": item.get("nome_orgao"),
-                    "uf_comprador": item.get("uf_unidade"),
-                    "valor_unitario": item.get("preco_unitario_homologado"),
-                    "descricao_item": item.get("descricao_item_licitacao"),
-                    "quantidade": item.get("quantidade_item"),
-                    "fonte": "Painel de Preços"
-                })
+            response = requests.get(endpoint, headers=self.headers, params=params, timeout=self.timeout)
+            response.raise_for_status() # Levanta um erro para respostas HTTP 4xx/5xx
             
-            print(f"Successfully fetched {len(prices)} prices from Painel de Preços.")
-            return prices
+            try:
+                data = response.json()
+            except json.JSONDecodeError:
+                # Loga o erro caso a resposta não seja um JSON válido
+                logger.warning(f"A resposta da API do Painel de Preços não foi um JSON válido. Status: {response.status_code}")
+                return []
+
+            contratacoes = data.get('_embedded', {}).get('contratacoes', [])
+            
+            if not contratacoes:
+                return []
+
+            return self._format_data(contratacoes)
 
         except requests.exceptions.RequestException as e:
-            print(f"Attempt {attempt + 1} failed for Painel de Preços API: {e}")
-            if attempt < retries - 1:
-                wait_time = RETRY_DELAY ** (attempt + 1)
-                print(f"Waiting {wait_time} seconds before next retry.")
-                time.sleep(wait_time)
+            logger.error(f"Erro na requisição ao Painel de Preços: {e}")
+            return []
+        except Exception as e:
+            logger.error(f"Erro inesperado ao processar dados do Painel de Preços: {e}")
+            return []
 
-    print("All retries failed for Painel de Preços API.")
-    return []
+    def _format_data(self, contratacoes: List[Dict]) -> List[Dict]:
+        """
+        Formata os dados brutos da API para o formato esperado pelo sistema.
+        """
+        prices = []
+        for item in contratacoes:
+            try:
+                price = {
+                    "source": "Painel de Preços",
+                    "date": datetime.strptime(item.get("data_assinatura_contrato"), '%Y-%m-%d').date() if item.get("data_assinatura_contrato") else None,
+                    "price": float(item.get("valor_unitario_homologado")),
+                    "quantity": int(item.get("quantidade_item")),
+                    "supplier": item.get("fornecedor_contratado"),
+                    "supplier_cnpj": item.get("cnpj_fornecedor_contratado"),
+                    "entity": item.get("orgao_contratante"),
+                    "region": item.get("uf_orgao_contratante"),
+                    "details_url": item.get('_links', {}).get('self', {}).get('href')
+                }
+                if price["price"] and price["price"] > 0:
+                    prices.append(price)
+            except (ValueError, TypeError, KeyError) as e:
+                logger.warning(f"Item do Painel de Preços ignorado por erro de formatação: {e} | Item: {item}")
+                continue
+        return prices

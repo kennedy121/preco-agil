@@ -10,7 +10,7 @@ Conforme:
 - Portaria TCU 123/2023 (Sistema Nacional de Preços)
 """
 
-from app import create_app
+from app.models import create_app
 from config import Config
 import os
 
