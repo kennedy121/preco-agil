@@ -1,131 +1,140 @@
-
-# app/api/portal_transparencia_api.py
+# -*- coding: utf-8 -*-
 """
-Cliente para Portal da Transparência (CGU)
-Documentação: https://portaldatransparencia.gov.br/api-de-dados
+Cliente API Portal da Transparência
 """
 
+import requests
 import os
-import logging
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
-from app.api.base_client import BaseAPIClient
+from dotenv import load_dotenv
 
-logger = logging.getLogger(__name__)
+load_dotenv()
 
 
-class PortalTransparenciaClient(BaseAPIClient):
-    """Cliente para API do Portal da Transparência"""
+class PortalTransparenciaClient:
+    """Cliente para API do Portal da Transparência (CGU)"""
     
     def __init__(self):
-        api_key = os.getenv('PORTAL_TRANSPARENCIA_API_KEY')
-        
-        super().__init__(
-            base_url='https://api.portaldatransparencia.gov.br/api-de-dados',
-            timeout=30,
-            max_retries=3,
-            rate_limit_calls=10,  # API tem limite rigoroso
-            cache_ttl=3600
+        self.base_url = os.getenv(
+            'PORTAL_TRANSPARENCIA_API_URL',
+            'https://api.portaldatransparencia.gov.br/api-de-dados'
         )
         
-        if not api_key:
-            logger.warning("⚠️ PORTAL_TRANSPARENCIA_API_KEY não configurada")
-            self.api_key = None
+        self.api_key = os.getenv('PORTAL_TRANSPARENCIA_API_KEY')
+        
+        if not self.api_key:
+            print("⚠️ PORTAL_TRANSPARENCIA_API_KEY não configurada")
         else:
-            self.api_key = api_key
-            self.session.headers.update({'chave-api-dados': api_key})
-            logger.info("✅ API do Portal da Transparência configurada")
+            print("✅ API Portal da Transparência OK")
+        
+        self.session = requests.Session()
+        self.session.headers.update({
+            'Accept': 'application/json',
+            'chave-api-dados': self.api_key or ''
+        })
     
     def search_contracts(
         self,
         item_description: str,
         start_date: Optional[str] = None,
         end_date: Optional[str] = None,
-        page: int = 1
+        max_results: int = 100
     ) -> List[Dict]:
-        """
-        Busca contratos por descrição
+        """Busca contratos por descrição"""
         
-        Args:
-            item_description: Termos de busca
-            start_date: Data inicial (dd/mm/yyyy)
-            end_date: Data final (dd/mm/yyyy)
-            page: Página
-        
-        Returns:
-            Lista de contratos
-        """
         if not self.api_key:
-            logger.warning("API key não configurada, pulando Portal Transparência")
+            print("  ⚠️ API key não configurada")
             return []
         
-        # Datas padrão
         if not end_date:
             end_date = datetime.now().strftime('%d/%m/%Y')
-        if not start_date:
-            start_date = (datetime.now() - timedelta(days=365)).strftime('%d/%m/%Y')
         
-        endpoint = '/contratos'
+        if not start_date:
+            start_date = (datetime.now() - timedelta(days=730)).strftime('%d/%m/%Y')
+        
+        endpoint = f"{self.base_url}/despesas/documentos"
+        
         params = {
             'dataInicial': start_date,
             'dataFinal': end_date,
-            'pagina': page
+            'pagina': 1
         }
         
-        logger.info(f"Buscando contratos Portal Transparência: {item_description[:30]}...")
+        print(f"  🔗 GET {endpoint}")
         
-        data = self.get(endpoint, params)
+        try:
+            response = self.session.get(endpoint, params=params, timeout=15)
+            print(f"  📊 Status: {response.status_code}")
+            
+            if response.status_code == 200:
+                try:
+                    data = response.json()
+                    
+                    if isinstance(data, list):
+                        filtered = [
+                            item for item in data 
+                            if item_description.lower() in str(item.get('descricao', '')).lower()
+                        ]
+                        
+                        print(f"  ✅ {len(filtered)} contratos")
+                        return self._parse_contracts(filtered[:max_results])
+                    else:
+                        return []
+                
+                except Exception as e:
+                    print(f"  ❌ Erro JSON: {e}")
+                    return []
+            
+            elif response.status_code == 401:
+                print(f"  ❌ API Key inválida")
+                return []
+            else:
+                print(f"  ⚠️ Erro HTTP {response.status_code}")
+                return []
         
-        if not data:
+        except requests.exceptions.Timeout:
+            print(f"  ⏱️ Timeout")
             return []
-        
-        # Filtra por descrição
-        all_contracts = data if isinstance(data, list) else []
-        
-        contracts = [
-            c for c in all_contracts 
-            if item_description.lower() in c.get('objeto', '').lower()
-        ]
-        
-        logger.info(f"Portal Transparência: {len(contracts)} contratos filtrados")
-        
-        return self._parse_contracts(contracts)
+        except Exception as e:
+            print(f"  ❌ Erro: {str(e)[:100]}")
+            return []
     
     def _parse_contracts(self, contracts: List[Dict]) -> List[Dict]:
-        """Processa contratos"""
+        """Processa contratos do Portal"""
         items = []
         
         for contract in contracts:
             try:
-                # Data
-                date_str = contract.get('dataAssinatura')
-                if date_str:
-                    date_obj = datetime.strptime(date_str, '%d/%m/%Y')
-                else:
-                    continue
+                valor = float(contract.get('valor', 0))
                 
-                # Valor
-                valor = float(contract.get('valorInicial', 0))
                 if valor <= 0:
                     continue
                 
-                fornecedor_info = contract.get('fornecedor', {})
-                orgao_info = contract.get('orgaoVinculado', {})
+                data_str = contract.get('data')
+                if data_str:
+                    try:
+                        date_obj = datetime.strptime(data_str, '%d/%m/%Y')
+                    except:
+                        try:
+                            date_obj = datetime.strptime(data_str.split('T')[0], '%Y-%m-%d')
+                        except:
+                            continue
+                else:
+                    continue
                 
                 items.append({
                     'source': 'Portal da Transparência',
                     'price': valor,
                     'date': date_obj,
-                    'supplier': fornecedor_info.get('nome'),
-                    'supplier_cnpj': fornecedor_info.get('cnpj'),
-                    'entity': orgao_info.get('nome'),
-                    'contract_number': contract.get('numero'),
-                    'object': contract.get('objeto'),
-                    'modality': contract.get('modalidade')
+                    'supplier': contract.get('fornecedor', {}).get('nome', 'N/A'),
+                    'supplier_cnpj': contract.get('fornecedor', {}).get('cnpjFormatado'),
+                    'entity': contract.get('orgao', {}).get('nome', 'N/A'),
+                    'region': contract.get('uf'),
+                    'contract_number': contract.get('numeroDocumento')
                 })
-                
-            except (ValueError, KeyError, TypeError) as e:
-                logger.debug(f"Contrato ignorado: {e}")
+            
+            except (ValueError, KeyError, TypeError):
                 continue
         
         return items

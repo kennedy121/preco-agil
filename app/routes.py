@@ -51,6 +51,7 @@ def buscar_item():
         return redirect(url_for('main.index'))
 
 
+
 @bp.route('/pesquisar-precos', methods=['POST'])
 @login_required
 def pesquisar_precos():
@@ -58,11 +59,11 @@ def pesquisar_precos():
     item_code = request.form.get('item_code', '').strip()
     catalog_type = request.form.get('catalog_type', '').strip()
     region = request.form.get('region', '').strip() or None
-    responsible_agent = current_user.full_name  # Atribui o usuário logado como responsável
+    responsible_agent = current_user.full_name
     
-    charts = {}
-    research_data = {'item_code': item_code, 'catalog_type': catalog_type}
-    stats = {}
+    charts = {{}}  # ✅ 2 chaves
+    research_data = {{'item_code': item_code, 'catalog_type': catalog_type}}  # ✅ 2 chaves
+    stats = {{}}  # ✅ 2 chaves
 
     if not item_code or not catalog_type:
         flash('Código do item e tipo são obrigatórios.', 'danger')
@@ -70,22 +71,27 @@ def pesquisar_precos():
 
     try:
         price_data = collector.collect_prices_with_fallback(item_code, catalog_type, region=region)
+        
         if price_data['total_prices'] == 0:
             flash('Nenhum preço encontrado para este item.', 'warning')
             return render_template('resultado.html', error=True, **locals())
 
         prices_values = [p['price'] for p in price_data['prices'] if p.get('price') and p['price'] > 0]
+        
         if not prices_values:
             flash('Nenhum preço válido encontrado para análise.', 'danger')
             return render_template('resultado.html', error=True, **locals())
             
         stats = analyzer.analyze_prices(prices_values)
+        
         if 'error' in stats:
             flash(stats['error'], 'danger')
             return render_template('resultado.html', error=True, **locals())
 
         catalog_info = collector.get_catalog_info(item_code, catalog_type)
-        research_data = {
+        
+        # ✅ Monta research_data SEM usar **kwargs
+        research_data = {{
             'item_code': item_code, 
             'catalog_type': catalog_type,
             'catalog_info': catalog_info, 
@@ -96,24 +102,27 @@ def pesquisar_precos():
             'prices_collected': price_data['prices'],
             'filters_applied': price_data['filters'], 
             'sample_size': len(prices_values)
-        }
+        }}
 
-        charts = {
+        charts = {{
             'histogram': chart_gen.create_histogram(prices_values, stats),
             'boxplot': chart_gen.create_boxplot(prices_values, stats),
             'timeline': chart_gen.create_timeline(price_data['prices']),
             'scatter': chart_gen.create_scatter_by_source(price_data['prices'])
-        }
+        }}
 
         pdf_filename = None
         try:
-            pdf_path = doc_generator.generate_research_report({**research_data, 'statistical_analysis': stats})
+            pdf_path = doc_generator.generate_research_report({{
+                **research_data, 
+                'statistical_analysis': stats
+            }})
             pdf_filename = os.path.basename(pdf_path)
         except Exception as e:
-            current_app.logger.error(f'Erro ao gerar PDF: {e}')
+            current_app.logger.error(f'Erro ao gerar PDF: {{e}}')
             flash('Pesquisa salva, mas houve erro ao gerar o PDF.', 'warning')
 
-        # ✅ CORREÇÃO: Serializa datas ANTES de salvar
+        # ✅ Serializa datas
         prices_serializable = []
         for p in price_data['prices']:
             p_copy = p.copy()
@@ -121,16 +130,16 @@ def pesquisar_precos():
                 p_copy['date'] = p_copy['date'].isoformat()
             prices_serializable.append(p_copy)
         
-        # ✅ CORREÇÃO: Cria objeto Pesquisa SEM usar **kwargs problemático
+        # ✅ Cria Pesquisa diretamente (SEM **)
         db_research = Pesquisa(
             user_id=current_user.id,
             item_code=item_code,
             item_description=catalog_info.get('description', 'N/A'),
             catalog_type=catalog_type,
             responsible_agent=responsible_agent,
-            stats=stats,  # Já é um dict, OK
-            prices_collected=prices_serializable,  # Lista de dicts, OK
-            sources_consulted=price_data['sources'],  # Lista de dicts, OK
+            stats=stats,
+            prices_collected=prices_serializable,
+            sources_consulted=price_data['sources'],
             pdf_filename=pdf_filename
         )
         
@@ -141,23 +150,28 @@ def pesquisar_precos():
             research_id = db_research.id
             flash('Pesquisa de preços concluída e salva com sucesso!', 'success')
             
-            # Auditoria
             audit_log(
                 'pesquisa_criada', 'pesquisa', research_id,
-                {'item': f"{item_code} ({catalog_type})", 'valor': stats.get('estimated_value')}
+                {{'item': f"{{item_code}} ({{catalog_type}})", 'valor': stats.get('estimated_value')}}
             )
             
         except Exception as e:
             db.session.rollback()
-            current_app.logger.error(f'Erro ao salvar pesquisa: {e}')
+            current_app.logger.error(f'Erro ao salvar pesquisa: {{e}}')
             flash('Pesquisa concluída, mas com erro ao salvar no histórico.', 'danger')
 
-        return render_template('resultado.html', research=research_data, stats=stats, pdf_filename=pdf_filename, research_id=research_id, charts=charts)
+        return render_template('resultado.html', 
+                             research=research_data, 
+                             stats=stats, 
+                             pdf_filename=pdf_filename, 
+                             research_id=research_id, 
+                             charts=charts)
 
     except Exception as e:
-        current_app.logger.error(f'Erro crítico na pesquisa de preços: {e}')
-        flash(f'Erro crítico ao realizar pesquisa: {e}', 'danger')
+        current_app.logger.error(f'Erro crítico na pesquisa de preços: {{e}}')
+        flash(f'Erro crítico ao realizar pesquisa: {{e}}', 'danger')
         return render_template('resultado.html', error=True, research=research_data, charts=charts)
+
 
 @bp.route('/download-pdf/<filename>')
 @login_required
