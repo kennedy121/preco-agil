@@ -1,0 +1,255 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Preço Ágil{% endblock %}
+
+{% block content %}
+<div class="container mt-4">
+    
+    <!-- Cabeçalho -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <h1 class="display-5 mb-2">
+                <i class="bi bi-speedometer2 me-2"></i>Dashboard
+            </h1>
+            <p class="text-muted">Visão geral das pesquisas de preços</p>
+        </div>
+    </div>
+
+    <!-- Estatísticas Gerais -->
+    <div class="row mb-4">
+        <!-- Total de Pesquisas -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-primary h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-search display-4 text-primary mb-3"></i>
+                    <h3 class="mb-1">{{ stats.total_pesquisas }}</h3>
+                    <p class="text-muted mb-0">Total de Pesquisas</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pesquisas Hoje -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-success h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-calendar-check display-4 text-success mb-3"></i>
+                    <h3 class="mb-1">{{ stats.pesquisas_hoje }}</h3>
+                    <p class="text-muted mb-0">Hoje</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Este Mês -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-info h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-calendar2-month display-4 text-info mb-3"></i>
+                    <h3 class="mb-1">{{ stats.pesquisas_mes }}</h3>
+                    <p class="text-muted mb-0">Este Mês</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Usuários Ativos -->
+        <div class="col-md-3 mb-3">
+            <div class="card border-warning h-100">
+                <div class="card-body text-center">
+                    <i class="bi bi-people display-4 text-warning mb-3"></i>
+                    <h3 class="mb-1">{{ stats.usuarios_ativos }}</h3>
+                    <p class="text-muted mb-0">Usuários Ativos</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Pesquisas Recentes -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-clock-history me-2"></i>Pesquisas Recentes
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if recent_searches %}
+                    <div class="table-responsive">
+                        <table class="table table-hover">
+                            <thead>
+                                <tr>
+                                    <th>Data/Hora</th>
+                                    <th>Código</th>
+                                    <th>Descrição</th>
+                                    <th>Tipo</th>
+                                    <th>Preços</th>
+                                    <th>Valor Estimado</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% for search in recent_searches %}
+                                <tr>
+                                    <td>{{ search.research_date.strftime('%d/%m/%Y %H:%M') }}</td>
+                                    <td><strong>{{ search.item_code }}</strong></td>
+                                    <td>{{ search.item_description[:50] }}...</td>
+                                    <td>
+                                        <span class="badge bg-{{ 'primary' if search.catalog_type == 'material' else 'success' }}">
+                                            {{ 'Material' if search.catalog_type == 'material' else 'Serviço' }}
+                                        </span>
+                                    </td>
+                                    <td>{{ search.sample_size }}</td>
+                                    <td>R$ {{ "%.2f"|format(search.estimated_value) }}</td>
+                                    <td>
+                                        <a href="{{ url_for('main.ver_pesquisa', id=search.id) }}" 
+                                           class="btn btn-sm btn-outline-primary">
+                                            <i class="bi bi-eye"></i> Ver
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                    {% else %}
+                    <div class="text-center py-5">
+                        <i class="bi bi-inbox display-1 text-muted"></i>
+                        <p class="text-muted mt-3">Nenhuma pesquisa encontrada</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Gráfico de Pesquisas por Dia (últimos 30 dias) -->
+    <div class="row mb-4">
+        <div class="col-12">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-bar-chart me-2"></i>Pesquisas - Últimos 30 Dias
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="chartPesquisas" height="80"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Itens Mais Pesquisados -->
+    <div class="row">
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header bg-success text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-trophy me-2"></i>Itens Mais Pesquisados
+                    </h5>
+                </div>
+                <div class="card-body">
+                    {% if top_items %}
+                    <ul class="list-group list-group-flush">
+                        {% for item in top_items %}
+                        <li class="list-group-item d-flex justify-content-between align-items-center">
+                            <div>
+                                <strong>{{ item.item_code }}</strong>
+                                <br>
+                                <small class="text-muted">{{ item.item_description[:40] }}...</small>
+                            </div>
+                            <span class="badge bg-primary rounded-pill">{{ item.count }}</span>
+                        </li>
+                        {% endfor %}
+                    </ul>
+                    {% else %}
+                    <p class="text-muted text-center">Sem dados disponíveis</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <!-- Estatísticas por Fonte -->
+        <div class="col-md-6 mb-4">
+            <div class="card">
+                <div class="card-header bg-info text-white">
+                    <h5 class="mb-0">
+                        <i class="bi bi-database me-2"></i>Preços por Fonte
+                    </h5>
+                </div>
+                <div class="card-body">
+                    <canvas id="chartFontes" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<!-- Scripts para gráficos -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@3.9.1/dist/chart.min.js"></script>
+<script>
+// Gráfico de pesquisas por dia
+const ctxPesquisas = document.getElementById('chartPesquisas');
+if (ctxPesquisas) {
+    new Chart(ctxPesquisas, {
+        type: 'line',
+        data: {
+            labels: {{ chart_data.labels | tojson }},
+            datasets: [{
+                label: 'Pesquisas',
+                data: {{ chart_data.values | tojson }},
+                borderColor: 'rgb(0, 102, 204)',
+                backgroundColor: 'rgba(0, 102, 204, 0.1)',
+                tension: 0.4
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    display: false
+                }
+            },
+            scales: {
+                y: {
+                    beginAtZero: true,
+                    ticks: {
+                        stepSize: 1
+                    }
+                }
+            }
+        }
+    });
+}
+
+// Gráfico de fontes
+const ctxFontes = document.getElementById('chartFontes');
+if (ctxFontes) {
+    new Chart(ctxFontes, {
+        type: 'doughnut',
+        data: {
+            labels: {{ fonte_data.labels | tojson }},
+            datasets: [{
+                data: {{ fonte_data.values | tojson }},
+                backgroundColor: [
+                    'rgba(0, 102, 204, 0.8)',
+                    'rgba(40, 167, 69, 0.8)',
+                    'rgba(255, 193, 7, 0.8)',
+                    'rgba(23, 162, 184, 0.8)',
+                    'rgba(220, 53, 69, 0.8)'
+                ]
+            }]
+        },
+        options: {
+            responsive: true,
+            maintainAspectRatio: true,
+            plugins: {
+                legend: {
+                    position: 'bottom'
+                }
+            }
+        }
+    });
+}
+</script>
+{% endblock %}

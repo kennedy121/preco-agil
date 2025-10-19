@@ -5,6 +5,7 @@ Coletor de Preços APRIMORADO - Preço Ágil
 
 from typing import List, Dict, Optional
 from datetime import datetime
+import pandas as pd
 from app.api.pncp_api import PNCPClient
 from app.api.comprasnet_api import ComprasNetClient
 from app.api.painel_precos_api import PainelPrecosClient
@@ -38,6 +39,36 @@ class EnhancedPriceCollector:
         self._cache = {}
         self._cache_ttl = 3600  # 1 hora
     
+    def _normalize_dates(self, prices: List[Dict]) -> List[Dict]:
+        """
+        Normaliza todas as datas para o formato YYYY-MM-DD (string)
+        """
+        for price in prices:
+            if 'date' in price:
+                try:
+                    date_val = price['date']
+                    
+                    if isinstance(date_val, datetime):
+                        price['date'] = date_val.strftime('%Y-%m-%d')
+                    
+                    elif isinstance(date_val, str):
+                        dt = pd.to_datetime(date_val, errors='coerce')
+                        if pd.notna(dt):
+                            price['date'] = dt.strftime('%Y-%m-%d')
+                        else:
+                            price['date'] = datetime.now().strftime('%Y-%m-%d')
+                    
+                    else:
+                        price['date'] = datetime.now().strftime('%Y-%m-%d')
+                        
+                except Exception as e:
+                    print(f"  ⚠️ Erro ao normalizar data: {e}")
+                    price['date'] = datetime.now().strftime('%Y-%m-%d')
+            else:
+                price['date'] = datetime.now().strftime('%Y-%m-%d')
+        
+        return prices
+
     def collect_prices_with_fallback(
         self,
         item_code: str,
@@ -48,120 +79,118 @@ class EnhancedPriceCollector:
     ) -> Dict:
         """
         Coleta preços com sistema robusto de fallback
-        
-        Args:
-            item_code: Código CATMAT/CATSER
-            catalog_type: 'material' ou 'servico'
-            region: UF (opcional)
-            max_days: Idade máxima dos preços
-            validate_suppliers: Validar CNPJs
-        
-        Returns:
-            Dados completos com preços validados
         """
-        
+        print("\n" + "="*70)
+        print(f"🔍 COLETA APRIMORADA DE PREÇOS - Item: {item_code}")
+        print("="*70 + "\n")
+
         all_prices = []
         sources_used = []
         
-        print(f"\n{'='*70}")
-        print(f"🔍 COLETA APRIMORADA DE PREÇOS - Item: {item_code}")
-        print(f"{'='*70}")
-        
         # 1. PAINEL DE PREÇOS
-        print(f"\n1️⃣ Consultando Painel de Preços...")
-        painel_prices = self._collect_from_painel(item_code, catalog_type, region)
-        if painel_prices:
-            all_prices.extend(painel_prices)
-            sources_used.append({
-                'fonte': 'Painel de Preços - Ministério da Economia',
-                'quantidade': len(painel_prices),
-                'url': 'https://paineldeprecos.planejamento.gov.br',
-                'prioridade': 1
-            })
-            print(f"   ✅ {len(painel_prices)} preços encontrados")
-        else:
-            print(f"   ℹ️ Nenhum preço encontrado")
-        
+        print("1️⃣  Consultando Painel de Preços...")
+        try:
+            painel_prices = self._collect_from_painel(item_code, catalog_type, region)
+            if painel_prices:
+                all_prices.extend(painel_prices)
+                sources_used.append({
+                    'fonte': 'Painel de Preços',
+                    'quantidade': len(painel_prices),
+                })
+                print(f"   ✅ {len(painel_prices)} preços encontrados")
+            else:
+                print("   ℹ️  Nenhum preço encontrado")
+        except Exception as e:
+            print(f"   ⚠️  Erro: {e}")
+            print("   ℹ️  Nenhum preço encontrado")
+
         # 2. PNCP
-        print(f"\n2️⃣ Consultando PNCP...")
-        pncp_prices = self._collect_from_pncp(item_code, catalog_type, region, max_days)
-        if pncp_prices:
-            all_prices.extend(pncp_prices)
-            sources_used.append({
-                'fonte': 'PNCP - Portal Nacional de Contratações Públicas',
-                'quantidade': len(pncp_prices),
-                'url': 'https://pncp.gov.br',
-                'prioridade': 2
-            })
-            print(f"   ✅ {len(pncp_prices)} preços encontrados")
-        else:
-            print(f"   ℹ️ Nenhum preço encontrado")
-        
+        print("\n2️⃣  Consultando PNCP...")
+        try:
+            pncp_prices = self._collect_from_pncp(item_code, catalog_type, region, max_days)
+            if pncp_prices:
+                all_prices.extend(pncp_prices)
+                sources_used.append({
+                    'fonte': 'PNCP',
+                    'quantidade': len(pncp_prices),
+                })
+                print(f"   ✅ {len(pncp_prices)} preços encontrados")
+            else:
+                print("   ℹ️  Nenhum preço encontrado")
+        except Exception as e:
+            print(f"   ⚠️  Erro: {e}")
+            print("   ℹ️  Nenhum preço encontrado")
+
         # 3. COMPRASNET
-        print(f"\n3️⃣ Consultando ComprasNet...")
-        comprasnet_prices = self._collect_from_comprasnet(item_code, catalog_type)
-        if comprasnet_prices:
-            all_prices.extend(comprasnet_prices)
-            sources_used.append({
-                'fonte': 'ComprasNet - Sistema Integrado',
-                'quantidade': len(comprasnet_prices),
-                'url': 'https://compras.dados.gov.br',
-                'prioridade': 3
-            })
-            print(f"   ✅ {len(comprasnet_prices)} preços encontrados")
-        else:
-            print(f"   ℹ️ Nenhum preço encontrado")
-        
+        print("\n3️⃣  Consultando ComprasNet...")
+        try:
+            comprasnet_prices = self._collect_from_comprasnet(item_code, catalog_type)
+            if comprasnet_prices:
+                all_prices.extend(comprasnet_prices)
+                sources_used.append({
+                    'fonte': 'ComprasNet',
+                    'quantidade': len(comprasnet_prices),
+                })
+                print(f"   ✅ {len(comprasnet_prices)} preços encontrados")
+            else:
+                print("   ℹ️  Nenhum preço encontrado")
+        except Exception as e:
+            print(f"   ⚠️  Erro: {e}")
+            print("   ℹ️  Nenhum preço encontrado")
+
         # 4. PORTAL DA TRANSPARÊNCIA
-        print(f"\n4️⃣ Consultando Portal da Transparência...")
-        pt_prices = self._collect_from_portal_transparencia(item_code, catalog_type)
-        if pt_prices:
-            all_prices.extend(pt_prices)
-            sources_used.append({
-                'fonte': 'Portal da Transparência - CGU',
-                'quantidade': len(pt_prices),
-                'url': 'https://portaltransparencia.gov.br',
-                'prioridade': 4
-            })
-            print(f"   ✅ {len(pt_prices)} preços encontrados")
-        else:
-            print(f"   ℹ️ Nenhum preço encontrado")
-        
-        # 5. MODO HÍBRIDO: Complementa com mockados se poucos dados reais
-        if len(all_prices) < 10:
-            print(f"\n⚠️ Apenas {len(all_prices)} preços reais encontrados")
-            print(f"   📊 Complementando com dados de teste...")
-            
+        print("\n4️⃣  Consultando Portal da Transparência...")
+        try:
+            pt_prices = self._collect_from_portal_transparencia(item_code, catalog_type)
+            if pt_prices:
+                all_prices.extend(pt_prices)
+                sources_used.append({
+                    'fonte': 'Portal da Transparência',
+                    'quantidade': len(pt_prices),
+                })
+                print(f"   ✅ {len(pt_prices)} preços encontrados")
+            else:
+                print("   ℹ️  Nenhum preço encontrado")
+        except Exception as e:
+            print(f"   ⚠️  Erro: {e}")
+            print("   ℹ️  Nenhum preço encontrado")
+
+        # Fallback para dados mockados
+        fallback_used = False
+        if not all_prices:
+            fallback_used = True
+            print("\n" + "="*30)
+            print("   ⚠️ NENHUM PREÇO REAL ENCONTRADO   ")
+            print("   Fallback para dados mockados...   ")
+            print("="*30 + "\n")
             try:
                 from app.services.mock_price_data import generate_mock_prices
-                
-                needed = max(20 - len(all_prices), 10)
-                mock_prices = generate_mock_prices(item_code, count=needed)
+                mock_prices = generate_mock_prices(item_code, count=35)
                 all_prices.extend(mock_prices)
-                
                 sources_used.append({
-                    'fonte': '⚠️ Complemento (Dados de Teste)',
-                    'quantidade': needed,
-                    'url': 'Sistema Local',
-                    'prioridade': 999,
-                    'nota': f'Adicionados {needed} preços simulados'
+                    'fonte': 'DADOS DE TESTE (Mockados)',
+                    'quantidade': len(mock_prices),
                 })
-                
-                print(f"   ✅ {needed} preços de teste gerados")
-                
             except Exception as e:
-                print(f"   ❌ Erro ao gerar mockados: {e}")
-        
-        # 6. Remove duplicatas
+                print(f"   ❌ Erro ao gerar dados mockados: {e}")
+
+        # Limpeza, normalização e ordenação
         all_prices = self._clean_prices(all_prices)
+        all_prices = self._normalize_dates(all_prices)
+        all_prices.sort(key=lambda x: x.get('date', '1900-01-01'), reverse=True)
         
-        # 7. Ordena por data
-        all_prices.sort(key=lambda x: x.get('date', datetime.min), reverse=True)
-        
-        # 8. Obtém descrição
         item_description = self.catmat.get_description(item_code) if catalog_type == 'material' else self.catser.get_description(item_code)
         
-        result = {
+        # Resumo final
+        print("\n" + "="*70)
+        print(f"✅ COLETA CONCLUÍDA - {len(all_prices)} preços válidos")
+        print(f"   📊 Fontes consultadas: {len(sources_used)}")
+        if sources_used:
+            fontes_str = ', '.join([s['fonte'] for s in sources_used])
+            print(f"   📍 Fontes: {fontes_str}")
+        print("="*70 + "\n")
+        
+        return {
             'item_code': item_code,
             'item_description': item_description or 'Descrição não disponível',
             'catalog_type': catalog_type,
@@ -175,72 +204,35 @@ class EnhancedPriceCollector:
             'collection_date': datetime.now(),
             'metadata': {
                 'suppliers_validated': validate_suppliers,
-                'cache_hit': False
+                'cache_hit': False,
+                'fallback_used': fallback_used
             }
         }
-        
-        print(f"\n{'='*70}")
-        print(f"✅ COLETA CONCLUÍDA - {len(all_prices)} preços válidos")
-        print(f"   📊 Fontes consultadas: {len(sources_used)}")
-        print(f"{'='*70}\n")
-        
-        return result
     
     def _collect_from_painel(self, item_code: str, catalog_type: str, region: Optional[str]) -> List[Dict]:
         """Coleta do Painel de Preços"""
-        try:
-            return self.painel_precos.search_by_item(
-                item_code=item_code,
-                item_type=catalog_type,
-                region=region
-            )
-        except Exception as e:
-            print(f"   ⚠️ Erro: {e}")
-            return []
+        return self.painel_precos.search_by_item(
+            item_code=item_code,
+            catalog_type=catalog_type,
+            region=region
+        )
     
     def _collect_from_pncp(self, item_code: str, catalog_type: str, region: Optional[str], max_days: int) -> List[Dict]:
         """Coleta do PNCP"""
-        try:
-            return self.pncp.search_contracts(
-                item_code=item_code,
-                catalog_type=catalog_type,
-                max_days=max_days,
-                region=region
-            )
-        except Exception as e:
-            print(f"   ⚠️ Erro: {e}")
-            return []
+        return self.pncp.search_contracts(
+            item_code=item_code,
+            catalog_type=catalog_type,
+            max_days=max_days,
+            region=region
+        )
     
     def _collect_from_comprasnet(self, item_code: str, catalog_type: str) -> List[Dict]:
         """Coleta do ComprasNet"""
-        try:
-            if catalog_type == 'material':
-                return self.comprasnet.search_material(item_code, max_pages=2)
-            else:
-                return self.comprasnet.search_service(item_code, max_pages=2)
-        except Exception as e:
-            print(f"   ⚠️ Erro: {e}")
-            return []
+        return self.comprasnet.search_by_item(item_code, catalog_type=catalog_type)
     
     def _collect_from_portal_transparencia(self, item_code: str, catalog_type: str) -> List[Dict]:
         """Coleta do Portal da Transparência"""
-        try:
-            if catalog_type == 'material':
-                item_info = self.catmat.search_by_code(item_code)
-            else:
-                item_info = self.catser.search_by_code(item_code)
-            
-            if not item_info:
-                return []
-            
-            description = item_info.get('descricao', '')
-            if description:
-                search_terms = ' '.join(description.split()[:5])
-                return self.portal_transparencia.search_contracts(item_description=search_terms)
-            return []
-        except Exception as e:
-            print(f"   ⚠️ Erro: {e}")
-            return []
+        return self.portal_transparencia.search_by_item(item_code, catalog_type=catalog_type)
     
     def _clean_prices(self, prices: List[Dict]) -> List[Dict]:
         """Remove duplicatas"""

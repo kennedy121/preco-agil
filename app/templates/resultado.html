@@ -1,4 +1,3 @@
-
 {% extends "base.html" %}
 
 {% block title %}Resultado da Pesquisa - Preço Ágil{% endblock %}
@@ -10,6 +9,9 @@
     }
     .stat-card:hover {
         transform: translateY(-5px);
+    }
+    .card-header-clickable {
+        cursor: pointer;
     }
 </style>
 {% endblock %}
@@ -87,18 +89,23 @@
     <div class="row mb-4">
         <div class="col-lg-6">
             <div class="card shadow h-100">
-                <div class="card-header bg-success text-white">
-                    <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Estatísticas</h5>
-                </div>
-                <div class="card-body">
-                    <table class="table">
-                        <tr><td><strong>Mediana:</strong></td><td class="text-end"><strong>R$ {{ "%.2f"|format(stats.median) }}</strong></td></tr>
-                        <tr><td>Média:</td><td class="text-end">R$ {{ "%.2f"|format(stats.mean) }}</td></tr>
-                        <tr><td>Média Saneada:</td><td class="text-end">R$ {{ "%.2f"|format(stats.sane_mean) }}</td></tr>
-                        <tr><td>Coef. Variação:</td><td class="text-end">{{ "%.1f"|format(stats.coefficient_variation * 100) }}%</td></tr>
-                        <tr><td>Mínimo:</td><td class="text-end">R$ {{ "%.2f"|format(stats.min) }}</td></tr>
-                        <tr><td>Máximo:</td><td class="text-end">R$ {{ "%.2f"|format(stats.max) }}</td></tr>
-                    </table>
+                <a data-bs-toggle="collapse" href="#estatisticasCollapse" role="button" class="text-decoration-none">
+                    <div class="card-header bg-success text-white card-header-clickable d-flex justify-content-between align-items-center">
+                        <h5 class="mb-0"><i class="bi bi-graph-up me-2"></i>Estatísticas</h5>
+                        <i class="bi bi-chevron-down"></i>
+                    </div>
+                </a>
+                <div class="collapse show" id="estatisticasCollapse">
+                    <div class="card-body">
+                        <table class="table">
+                            <tr><td><strong>Mediana:</strong></td><td class="text-end"><strong>R$ {{ "%.2f"|format(stats.median) }}</strong></td></tr>
+                            <tr><td>Média:</td><td class="text-end">R$ {{ "%.2f"|format(stats.mean) }}</td></tr>
+                            <tr><td>Média Saneada:</td><td class="text-end">R$ {{ "%.2f"|format(stats.sane_mean) }}</td></tr>
+                            <tr><td>Coef. Variação:</td><td class="text-end">{{ "%.1f"|format(stats.coefficient_variation * 100) }}%</td></tr>
+                            <tr><td>Mínimo:</td><td class="text-end">R$ {{ "%.2f"|format(stats.min) }}</td></tr>
+                            <tr><td>Máximo:</td><td class="text-end">R$ {{ "%.2f"|format(stats.max) }}</td></tr>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
@@ -249,6 +256,30 @@
                 </div>
             </div>
         </div>
+    </div>
+
+    <!-- Adicione no card de ações: -->
+    <div class="btn-group" role="group">
+        <button type="button" class="btn btn-success dropdown-toggle" data-bs-toggle="dropdown">
+            <i class="bi bi-download me-1"></i>Exportar
+        </button>
+        <ul class="dropdown-menu">
+            <li>
+                <a class="dropdown-item" href="{{ url_for('main.export_pesquisa', id=research_id, format='excel') }}">
+                    <i class="bi bi-file-earmark-excel text-success me-2"></i>Excel (XLSX)
+                </a>
+            </li>
+            <li>
+                <a class="dropdown-item" href="{{ url_for('main.export_pesquisa', id=research_id, format='csv') }}">
+                    <i class="bi bi-file-earmark-spreadsheet text-primary me-2"></i>CSV
+                </a>
+            </li>
+            <li>
+                <a class="dropdown-item" href="{{ url_for('main.export_pesquisa', id=research_id, format='json') }}">
+                    <i class="bi bi-file-earmark-code text-warning me-2"></i>JSON
+                </a>
+            </li>
+        </ul>
     </div>
 
     <!-- Ações -->

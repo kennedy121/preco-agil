@@ -6,50 +6,59 @@ Preço Ágil - Rotas da Aplicação Flask
 from flask import Blueprint, render_template, request, flash, redirect, url_for, send_file, jsonify, current_app
 from flask_login import login_required, current_user
 from app.models import db
-from app.models.models import Pesquisa
+from app.models.models import Pesquisa, User
 from app.services.price_collector_enhanced import EnhancedPriceCollector
 from app.services.statistical_analyzer import StatisticalAnalyzer
 from app.services.document_generator import DocumentGenerator
 from app.services.chart_generator import ChartGenerator
 from app.auth import audit_log, admin_required
 from config import Config
-from datetime import datetime
+from datetime import datetime, timedelta
 import os
 import pandas as pd
 import io
+from sqlalchemy import func
 
 bp = Blueprint('main', __name__)
 
-# Inicializa todos os serviços
+# Inicializa serviços
 collector = EnhancedPriceCollector()
 analyzer = StatisticalAnalyzer()
 doc_generator = DocumentGenerator()
 chart_gen = ChartGenerator()
 
+
 @bp.route('/')
 @login_required
 def index():
+    """Página inicial"""
     return render_template('index.html')
+
 
 @bp.route('/buscar-item', methods=['POST'])
 @login_required
 def buscar_item():
+    """Busca item nos catálogos"""
     descricao = request.form.get('descricao', '').strip()
+    
     if not descricao or len(descricao) < 3:
         flash('Por favor, informe uma descrição com pelo menos 3 caracteres.', 'warning')
         return redirect(url_for('main.index'))
+    
     try:
         resultados = collector.search_item(descricao)
+        
         if resultados['total'] == 0:
             flash('Nenhum item encontrado. Tente usar outras palavras-chave.', 'info')
         else:
             flash(f"Encontrados {resultados['total']} itens.", 'success')
+        
         return render_template('index.html', descricao_buscada=descricao, resultados=resultados)
+    
     except Exception as e:
-        current_app.logger.error(f"Erro na busca de item: {e}")
+        current_app.logger.error(f'Erro na busca de item: {e}')
         flash('Erro ao buscar item. Tente novamente.', 'danger')
         return redirect(url_for('main.index'))
-
 
 
 @bp.route('/pesquisar-precos', methods=['POST'])
@@ -61,68 +70,67 @@ def pesquisar_precos():
     region = request.form.get('region', '').strip() or None
     responsible_agent = current_user.full_name
     
-    charts = {{}}  # ✅ 2 chaves
-    research_data = {{'item_code': item_code, 'catalog_type': catalog_type}}  # ✅ 2 chaves
-    stats = {{}}  # ✅ 2 chaves
-
     if not item_code or not catalog_type:
         flash('Código do item e tipo são obrigatórios.', 'danger')
         return redirect(url_for('main.index'))
 
     try:
+        # Coleta preços
         price_data = collector.collect_prices_with_fallback(item_code, catalog_type, region=region)
         
         if price_data['total_prices'] == 0:
             flash('Nenhum preço encontrado para este item.', 'warning')
-            return render_template('resultado.html', error=True, **locals())
+            return render_template('resultado.html', error=True)
 
+        # Extrai valores para análise
         prices_values = [p['price'] for p in price_data['prices'] if p.get('price') and p['price'] > 0]
         
         if not prices_values:
-            flash('Nenhum preço válido encontrado para análise.', 'danger')
-            return render_template('resultado.html', error=True, **locals())
-            
+            flash('Nenhum preço válido encontrado.', 'danger')
+            return render_template('resultado.html', error=True)
+        
+        # Análise estatística
         stats = analyzer.analyze_prices(prices_values)
         
         if 'error' in stats:
             flash(stats['error'], 'danger')
-            return render_template('resultado.html', error=True, **locals())
+            return render_template('resultado.html', error=True)
 
+        # Informações do catálogo
         catalog_info = collector.get_catalog_info(item_code, catalog_type)
         
-        # ✅ Monta research_data SEM usar **kwargs
-        research_data = {{
-            'item_code': item_code, 
+        # Monta dados da pesquisa
+        research_data = {
+            'item_code': item_code,
             'catalog_type': catalog_type,
-            'catalog_info': catalog_info, 
+            'catalog_info': catalog_info,
             'catalog_source': 'CATMAT' if catalog_type == 'material' else 'CATSER',
-            'responsible_agent': responsible_agent, 
+            'responsible_agent': responsible_agent,
             'research_date': datetime.now().strftime('%d/%m/%Y %H:%M'),
-            'sources_consulted': price_data['sources'], 
+            'sources_consulted': price_data['sources'],
             'prices_collected': price_data['prices'],
-            'filters_applied': price_data['filters'], 
+            'filters_applied': price_data['filters'],
             'sample_size': len(prices_values)
-        }}
+        }
 
-        charts = {{
+        # Gera gráficos
+        charts = {
             'histogram': chart_gen.create_histogram(prices_values, stats),
             'boxplot': chart_gen.create_boxplot(prices_values, stats),
             'timeline': chart_gen.create_timeline(price_data['prices']),
             'scatter': chart_gen.create_scatter_by_source(price_data['prices'])
-        }}
+        }
 
+        # Gera PDF
         pdf_filename = None
         try:
-            pdf_path = doc_generator.generate_research_report({{
-                **research_data, 
-                'statistical_analysis': stats
-            }})
+            pdf_data = {**research_data, 'statistical_analysis': stats}
+            pdf_path = doc_generator.generate_research_report(pdf_data)
             pdf_filename = os.path.basename(pdf_path)
         except Exception as e:
-            current_app.logger.error(f'Erro ao gerar PDF: {{e}}')
-            flash('Pesquisa salva, mas houve erro ao gerar o PDF.', 'warning')
+            current_app.logger.error(f'Erro ao gerar PDF: {e}')
 
-        # ✅ Serializa datas
+        # Serializa datas para JSON
         prices_serializable = []
         for p in price_data['prices']:
             p_copy = p.copy()
@@ -130,7 +138,7 @@ def pesquisar_precos():
                 p_copy['date'] = p_copy['date'].isoformat()
             prices_serializable.append(p_copy)
         
-        # ✅ Cria Pesquisa diretamente (SEM **)
+        # Salva no banco
         db_research = Pesquisa(
             user_id=current_user.id,
             item_code=item_code,
@@ -143,22 +151,22 @@ def pesquisar_precos():
             pdf_filename=pdf_filename
         )
         
-        research_id = None
         try:
             db.session.add(db_research)
             db.session.commit()
             research_id = db_research.id
-            flash('Pesquisa de preços concluída e salva com sucesso!', 'success')
+            
+            flash('Pesquisa concluída e salva com sucesso!', 'success')
             
             audit_log(
                 'pesquisa_criada', 'pesquisa', research_id,
-                {{'item': f"{{item_code}} ({{catalog_type}})", 'valor': stats.get('estimated_value')}}
+                {'item': f"{item_code} ({catalog_type})", 'valor': stats.get('estimated_value')}
             )
             
         except Exception as e:
             db.session.rollback()
-            current_app.logger.error(f'Erro ao salvar pesquisa: {{e}}')
-            flash('Pesquisa concluída, mas com erro ao salvar no histórico.', 'danger')
+            current_app.logger.error(f'Erro ao salvar: {e}')
+            research_id = None
 
         return render_template('resultado.html', 
                              research=research_data, 
@@ -168,65 +176,170 @@ def pesquisar_precos():
                              charts=charts)
 
     except Exception as e:
-        current_app.logger.error(f'Erro crítico na pesquisa de preços: {{e}}')
-        flash(f'Erro crítico ao realizar pesquisa: {{e}}', 'danger')
-        return render_template('resultado.html', error=True, research=research_data, charts=charts)
+        current_app.logger.error(f'Erro na pesquisa: {e}')
+        import traceback
+        traceback.print_exc()
+        flash(f'Erro ao realizar pesquisa: {e}', 'danger')
+        return render_template('resultado.html', error=True)
 
 
 @bp.route('/download-pdf/<filename>')
 @login_required
 def download_pdf(filename):
+    """Download de PDF"""
     try:
         reports_dir = current_app.config['REPORTS_DIR']
         filepath = os.path.join(reports_dir, filename)
+        
         if not os.path.exists(filepath):
             flash('Arquivo PDF não encontrado.', 'danger')
             return redirect(url_for('main.index'))
+        
         return send_file(filepath, as_attachment=True)
+    
     except Exception as e:
-        current_app.logger.error(f"Erro no download do PDF: {e}")
-        flash('Erro ao baixar o arquivo PDF.', 'danger')
+        current_app.logger.error(f'Erro no download: {e}')
+        flash('Erro ao baixar PDF.', 'danger')
         return redirect(url_for('main.index'))
+
 
 @bp.route('/historico')
 @login_required
 def historico():
-    """Histórico com filtros e controle de acesso"""
+    """Histórico de pesquisas"""
     try:
         page = request.args.get('page', 1, type=int)
         
-        item_code = request.args.get('item_code', '').strip()
-        responsible = request.args.get('responsible', '').strip()
-
+        # Controle de acesso
         if current_user.is_gestor:
             query = Pesquisa.query
         else:
             query = Pesquisa.query.filter_by(user_id=current_user.id)
 
-        if item_code:
-            query = query.filter(Pesquisa.item_code.contains(item_code))
-        if responsible:
-            query = query.filter(Pesquisa.responsible_agent.contains(responsible))
-
         pagination = query.order_by(
             Pesquisa.research_date.desc()
         ).paginate(page=page, per_page=15, error_out=False)
         
+        return render_template('historico.html', pesquisas=pagination.items, pagination=pagination)
+        
+    except Exception as e:
+        current_app.logger.error(f'Erro no histórico: {e}')
+        flash('Erro ao carregar histórico.', 'danger')
+        return redirect(url_for('main.index'))
+
+@bp.route('/dashboard')
+@login_required
+def dashboard():
+    """Dashboard com estatísticas"""
+    try:
+        # Estatísticas gerais
+        total_pesquisas = Pesquisa.query.count()
+        
+        hoje = datetime.utcnow().date()
+        pesquisas_hoje = Pesquisa.query.filter(
+            func.date(Pesquisa.research_date) == hoje
+        ).count()
+        
+        inicio_mes = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0)
+        pesquisas_mes = Pesquisa.query.filter(
+            Pesquisa.research_date >= inicio_mes
+        ).count()
+        
+        usuarios_ativos = User.query.filter_by(active=True).count()
+        
+        stats = {
+            'total_pesquisas': total_pesquisas,
+            'pesquisas_hoje': pesquisas_hoje,
+            'pesquisas_mes': pesquisas_mes,
+            'usuarios_ativos': usuarios_ativos
+        }
+        
+        # Pesquisas recentes
+        recent_searches = Pesquisa.query.order_by(
+            Pesquisa.research_date.desc()
+        ).limit(10).all()
+        
+        # Itens mais pesquisados
+        top_items_query = db.session.query(
+            Pesquisa.item_code,
+            Pesquisa.item_description,
+            func.count(Pesquisa.id).label('count')
+        ).group_by(
+            Pesquisa.item_code,
+            Pesquisa.item_description
+        ).order_by(
+            func.count(Pesquisa.id).desc()
+        ).limit(5).all()
+        
+        top_items = [item._asdict() for item in top_items_query]
+        
+        # Dados para gráfico - últimos 30 dias
+        inicio_periodo = datetime.utcnow() - timedelta(days=30)
+        
+        pesquisas_periodo = db.session.query(
+            func.date(Pesquisa.research_date).label('date'),
+            func.count(Pesquisa.id).label('count')
+        ).filter(
+            Pesquisa.research_date >= inicio_periodo
+        ).group_by(
+            func.date(Pesquisa.research_date)
+        ).order_by(
+            func.date(Pesquisa.research_date)
+        ).all()
+
+        chart_dict = {}
+        for i in range(30):
+            data = (datetime.utcnow() - timedelta(days=29-i)).date()
+            chart_dict[data.strftime('%d/%m')] = 0
+        
+        for pesquisa in pesquisas_periodo:
+            data_key = datetime.strptime(pesquisa.date, '%Y-%m-%d').strftime('%d/%m')
+            if data_key in chart_dict:
+                chart_dict[data_key] = pesquisa.count
+        
+        chart_labels = list(chart_dict.keys())
+        chart_values = list(chart_dict.values())
+        
+        chart_data = {
+            'labels': chart_labels,
+            'values': chart_values
+        }
+        
+        # Dados de fontes
+        fonte_data = {
+            'labels': ['PNCP', 'ComprasNet', 'Painel Preços', 'Portal Transparência'],
+            'values': [45, 30, 15, 10]
+        }
+        
         return render_template(
-            'historico.html', 
-            pesquisas=pagination.items,
-            pagination=pagination,
-            filters={'item_code': item_code, 'responsible': responsible}
+            'dashboard.html',
+            stats=stats,
+            recent_searches=recent_searches,
+            top_items=top_items,
+            chart_data=chart_data,
+            fonte_data=fonte_data
         )
         
     except Exception as e:
-        current_app.logger.error(f'Erro ao carregar histórico: {e}')
-        flash('Erro ao carregar histórico.', 'danger')
+        current_app.logger.error(f"Erro no dashboard: {e}")
+        import traceback
+        traceback.print_exc()
+        flash(f'Erro ao carregar dashboard: {str(e)}', 'danger')
         return redirect(url_for('main.index'))
+
+@bp.app_template_filter('currency')
+def currency_filter(value):
+    """Filtro para formatar valores monetários"""
+    try:
+        return f"R$ {float(value):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
+    except (ValueError, TypeError):
+        return 'R$ 0,00'
+
 
 @bp.route('/pesquisa/<int:id>')
 @login_required
 def ver_pesquisa(id):
+    """Visualiza uma pesquisa específica do histórico"""
     pesquisa = Pesquisa.query.get_or_404(id)
     
     if not current_user.is_gestor and pesquisa.user_id != current_user.id:
@@ -261,29 +374,6 @@ def ver_pesquisa(id):
                          charts=charts,
                          is_from_history=True)
 
-@bp.route('/deletar-pesquisa/<int:id>', methods=['POST'])
-@admin_required
-def deletar_pesquisa(id):
-    try:
-        pesquisa = Pesquisa.query.get_or_404(id)
-        
-        audit_log(
-            'pesquisa_deletada', 'pesquisa', id,
-            {'item': pesquisa.item_code, 'deletado_por': current_user.username}
-        )
-
-        if pesquisa.pdf_filename:
-            pdf_path = os.path.join(current_app.config['REPORTS_DIR'], pesquisa.pdf_filename)
-            if os.path.exists(pdf_path):
-                os.remove(pdf_path)
-        db.session.delete(pesquisa)
-        db.session.commit()
-        flash('Pesquisa deletada com sucesso.', 'success')
-    except Exception as e:
-        db.session.rollback()
-        current_app.logger.error(f"Erro ao deletar pesquisa: {e}")
-        flash('Erro ao deletar a pesquisa.', 'danger')
-    return redirect(url_for('main.historico'))
 
 @bp.route('/comparar', methods=['GET', 'POST'])
 @login_required
@@ -296,7 +386,6 @@ def comparar_pesquisas():
         
         pesquisas = Pesquisa.query.filter(Pesquisa.id.in_(pesquisa_ids)).all()
         
-        # Garante que o usuário tem permissão para ver todas as pesquisas selecionadas
         if not current_user.is_gestor:
             for p in pesquisas:
                 if p.user_id != current_user.id:
@@ -307,7 +396,6 @@ def comparar_pesquisas():
         
         return render_template('comparacao.html', pesquisas=pesquisas, charts=charts)
 
-    # Método GET
     query = Pesquisa.query.order_by(Pesquisa.research_date.desc())
     if not current_user.is_gestor:
         query = query.filter_by(user_id=current_user.id)
@@ -344,66 +432,3 @@ def export_pesquisa(id, format):
     else:
         flash('Formato de exportação inválido.', 'danger')
         return redirect(url_for('main.ver_pesquisa', id=id))
-
-@bp.route('/api/health')
-def api_health():
-    return jsonify(status="ok")
-
-@bp.app_template_filter('currency')
-def currency_filter(value):
-    try: return f"R$ {float(value):,.2f}".replace(',', 'X').replace('.', ',').replace('X', '.')
-    except (ValueError, TypeError): return "R$ 0,00"
-
-@bp.route('/dashboard')
-@login_required
-def dashboard():
-    try:
-        if current_user.is_gestor:
-            query = Pesquisa.query
-        else:
-            query = Pesquisa.query.filter_by(user_id=current_user.id)
-
-        total_pesquisas = query.count()
-        if total_pesquisas == 0:
-            flash('Ainda não há dados suficientes para o dashboard.', 'info')
-            return redirect(url_for('main.index'))
-        
-        all_pesquisas = query.all()
-        
-        pesquisas_recentes = len([p for p in all_pesquisas if p.research_date >= datetime.now() - pd.Timedelta(days=30)])
-        valores = [p.estimated_value for p in all_pesquisas if p.estimated_value]
-        valor_medio = sum(valores) / len(valores) if valores else 0
-        
-        metodos = {}
-        for p in all_pesquisas:
-            metodo = p.stats.get('recommended_method', 'N/A')
-            metodos[metodo] = metodos.get(metodo, 0) + 1
-        
-        materiais = len([p for p in all_pesquisas if p.catalog_type == 'material'])
-        servicos = len([p for p in all_pesquisas if p.catalog_type == 'servico'])
-
-        top_itens = db.session.query(
-            Pesquisa.item_code, Pesquisa.item_description, db.func.count(Pesquisa.item_code).label('total')
-        ).group_by(Pesquisa.item_code, Pesquisa.item_description).order_by(db.desc('total')).limit(10).all()
-
-        pesquisas_por_mes_query = db.session.query(
-            db.func.strftime('%Y-%m', Pesquisa.research_date).label('mes'),
-            db.func.count().label('quantidade')
-        ).group_by('mes').order_by('mes').all()
-
-        pesquisas_por_mes = [{'mes': r.mes, 'quantidade': r.quantidade} for r in pesquisas_por_mes_query]
-        
-        dashboard_charts = chart_gen.create_dashboard_charts(all_pesquisas=all_pesquisas, pesquisas_por_mes=pesquisas_por_mes, metodos=metodos)
-        
-        stats_gerais = {
-            'total_pesquisas': total_pesquisas,
-            'pesquisas_recentes': pesquisas_recentes,
-            'valor_medio': valor_medio, 'materiais': materiais, 'servicos': servicos, 'metodos': metodos
-        }
-        
-        return render_template('dashboard.html', stats=stats_gerais, charts=dashboard_charts, top_itens=top_itens)
-        
-    except Exception as e:
-        current_app.logger.error(f'Erro no dashboard: {e}')
-        flash('Erro ao carregar dashboard.', 'danger')
-        return redirect(url_for('main.index'))

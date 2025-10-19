@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 """
 Gerador de Gráficos - Preço Ágil
@@ -8,6 +7,7 @@ import plotly.graph_objects as go
 import plotly.express as px
 from plotly.subplots import make_subplots
 import numpy as np
+import pandas as pd
 from typing import List, Dict
 from datetime import datetime
 
@@ -170,27 +170,30 @@ class ChartGenerator:
         Returns:
             HTML do gráfico
         """
-        import pandas as pd
-        
-        df = pd.DataFrame(prices_data)
-        
-        fig = px.scatter(
-            df,
-            x='source',
-            y='price',
-            color='region',
-            size='price',
-            hover_data=['supplier', 'entity'],
-            title="Preços por Fonte de Dados",
-            labels={'price': 'Preço (R$)', 'source': 'Fonte', 'region': 'UF'}
-        )
-        
-        fig.update_layout(
-            template='plotly_white',
-            height=400
-        )
-        
-        return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        try:
+            df = pd.DataFrame(prices_data)
+            
+            fig = px.scatter(
+                df,
+                x='source',
+                y='price',
+                color='region',
+                size='price',
+                hover_data=['supplier', 'entity'],
+                title="Preços por Fonte de Dados",
+                labels={'price': 'Preço (R$)', 'source': 'Fonte', 'region': 'UF'}
+            )
+            
+            fig.update_layout(
+                template='plotly_white',
+                height=400
+            )
+            
+            return fig.to_html(full_html=False, include_plotlyjs='cdn')
+        except Exception as e:
+            print(f"❌ Erro ao criar gráfico de dispersão: {e}")
+            return ""
+
     
     def create_dashboard_summary(self, all_researches: List) -> str:
         """
@@ -266,7 +269,6 @@ class ChartGenerator:
         fig_radar = go.Figure()
         radar_categories = ['Mediana', 'Média', 'Média Saneada', 'CV (%)', 'Mínimo', 'Máximo']
         
-        # Normalização dos dados para o radar
         all_stats = [p.stats for p in pesquisas]
         max_values = {
             'median': max([s.get('median', 0) for s in all_stats]),

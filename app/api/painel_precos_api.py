@@ -60,7 +60,7 @@ class PainelPrecosClient:
             total=self.MAX_RETRIES,
             backoff_factor=self.BACKOFF_FACTOR,
             status_forcelist=[429, 500, 502, 503, 504],
-            allowed_methods=["HEAD", "GET", "OPTIONS"]  # ✅ CORRETO (urllib3 >= 2.0)
+            allowed_methods=["HEAD", "GET", "OPTIONS"]
         )
         
         adapter = HTTPAdapter(max_retries=retry_strategy)
@@ -95,7 +95,6 @@ class PainelPrecosClient:
                 logger.debug(f"Cache hit: {key} (idade: {age:.0f}s)")
                 return data
             else:
-                # Remove item expirado
                 del self._cache[key]
                 logger.debug(f"Cache expirado: {key}")
         
@@ -105,195 +104,108 @@ class PainelPrecosClient:
         """Armazena item no cache"""
         self._cache[key] = (data, time.time())
         
-        # Limpa cache se muito grande (máximo 100 itens)
         if len(self._cache) > 100:
-            # Remove os 20 mais antigos
             items = sorted(self._cache.items(), key=lambda x: x[1][1])
             for key, _ in items[:20]:
                 del self._cache[key]
             logger.debug(f"Cache limpo: removidos 20 itens antigos")
     
-    def search_by_item(
-        self, 
-        item_code: str, 
-        item_type: str,
-        region: Optional[str] = None,
-        max_days: int = 365,
-        max_results: int = 1000
-    ) -> List[Dict]:
+
+    def search_by_item(self, item_code: str, catalog_type: str = 'material', **kwargs) -> List[Dict]:
         """
         Busca preços de um item no Painel de Preços
         
         Args:
-            item_code: Código CATMAT ou CATSER
-            item_type: 'material' ou 'servico'
-            region: Sigla do estado (SP, RJ, etc)
-            max_days: Idade máxima dos preços em dias
-            max_results: Número máximo de resultados
-            
-        Returns:
-            Lista de dicionários com os preços encontrados
-            
-        Raises:
-            ValueError: Se parâmetros inválidos
-            ConnectionError: Se falha de conexão
+            item_code: Código do item
+            catalog_type: Tipo do catálogo ('material' ou 'servico')
+            **kwargs: Aceita parâmetros adicionais (region, max_days, etc) para compatibilidade
         """
+        if 'item_type' in kwargs:
+            catalog_type = kwargs['item_type']
         
-        # ✅ VALIDAÇÃO DE ENTRADA
-        if not item_code or not item_code.strip():
-            raise ValueError("❌ Código do item é obrigatório")
+        region = kwargs.get('region', None)
+        max_results = kwargs.get('max_results', 1000)
         
-        if item_type not in ['material', 'servico']:
-            raise ValueError(f"❌ Tipo inválido: {item_type}. Use 'material' ou 'servico'")
-        
-        item_code = item_code.strip()
-        
-        # Verifica cache
-        cache_key = f"{item_code}_{item_type}_{region}_{max_days}"
-        cached = self._get_cache(cache_key)
-        if cached is not None:
-            logger.info(f"✅ Retornando {len(cached)} preços do cache")
-            return cached
-        
-        # Faz requisição
         try:
-            logger.info(f"🔍 Buscando preços: {item_code} ({item_type})")
+            params = {
+                'codigoItem': item_code,
+                'tipo': 'material' if catalog_type == 'material' else 'servico'
+            }
+            
+            if region:
+                params['regiao'] = region
             
             results = self._search_with_pagination(
-                item_code=item_code,
-                item_type=item_type,
-                region=region,
-                max_days=max_days,
+                params=params,
                 max_results=max_results
             )
             
-            # Armazena no cache
-            if results:
-                self._set_cache(cache_key, results)
-            
-            logger.info(f"✅ Encontrados {len(results)} preços no Painel")
             return results
             
-        except requests.exceptions.Timeout:
-            logger.error(f"⏱️ Timeout ao buscar {item_code} (>{self.timeout}s)")
-            raise ConnectionError("Timeout na API do Painel de Preços")
-        
-        except requests.exceptions.ConnectionError as e:
-            logger.error(f"🔌 Erro de conexão: {e}")
-            raise ConnectionError("Erro de conexão com Painel de Preços")
-        
-        except requests.exceptions.HTTPError as e:
-            logger.error(f"❌ Erro HTTP: {e}")
-            
-            if e.response.status_code == 429:
-                raise ConnectionError("Rate limit excedido no Painel de Preços")
-            elif e.response.status_code == 404:
-                logger.info(f"ℹ️ Item {item_code} não encontrado no Painel")
-                return []
-            else:
-                raise ConnectionError(f"Erro HTTP {e.response.status_code}")
-        
         except Exception as e:
-            logger.error(f"❌ Erro inesperado: {e}", exc_info=True)
-            raise
+            print(f"   ⚠️ Erro: {e}")
+            return []
     
-    def _search_with_pagination(
-        self,
-        item_code: str,
-        item_type: str,
-        region: Optional[str],
-        max_days: int,
-        max_results: int
-    ) -> List[Dict]:
+    
+    def _search_with_pagination(self, params: Dict, max_results: int = 1000) -> List[Dict]:
         """Busca com paginação automática"""
-        
         all_results = []
-        page = 0
+        page = 1
         
         while len(all_results) < max_results:
-            # Rate limiting
-            self._rate_limit()
+            params['page'] = page
             
-            # Parâmetros da requisição
-            params = {
-                "codigo_item": item_code,
-                "tipo": item_type,
-                "offset": page * self.MAX_ITEMS_PER_REQUEST,
-                "limit": self.MAX_ITEMS_PER_REQUEST
-            }
-            
-            # Filtro por região
-            if region:
-                params["uf"] = region.upper()
-            
-            # Filtro por data
-            date_limit = datetime.now() - timedelta(days=max_days)
-            params["data_inicio"] = date_limit.strftime("%Y-%m-%d")
-            
-            logger.debug(f"📄 Página {page + 1}: {params}")
-            
-            # Requisição
-            response = self.session.get(
-                f"{self.BASE_URL}/contratacoes",
-                params=params,
-                timeout=self.timeout
-            )
-            
-            response.raise_for_status()
-            
-            # Parse JSON
-            data = response.json()
-            items = data.get("_embedded", {}).get("contracoes", [])
-            
-            if not items:
-                logger.debug(f"ℹ️ Nenhum item na página {page + 1}, finalizando")
+            try:
+                response = self.session.get(
+                    f"{self.BASE_URL}/compras",
+                    params=params,
+                    timeout=30
+                )
+                
+                if response.status_code != 200:
+                    print(f"   ⚠️ Status {response.status_code}: {response.text[:200]}")
+                    break
+                
+                if not response.text or 'application/json' not in response.headers.get('Content-Type', ''):
+                    print(f"   ⚠️ Resposta inesperada da API: {response.text[:500]}")
+                    break
+                
+                data = response.json()
+                items = data.get('_embedded', {}).get('compras', [])
+
+                if not items:
+                    break
+
+                all_results.extend(self._parse_items(items))
+                page += 1
+
+            except requests.exceptions.JSONDecodeError as e:
+                print(f"   ⚠️ Erro ao decodificar JSON: {e}")
+                print(f"   📄 Resposta recebida: {response.text[:500]}")
                 break
-            
-            # Processa e adiciona
-            parsed = self._parse_items(items)
-            all_results.extend(parsed)
-            
-            logger.debug(f"✅ Página {page + 1}: {len(parsed)} itens válidos")
-            
-            # Se retornou menos que o limite, não há mais páginas
-            if len(items) < self.MAX_ITEMS_PER_REQUEST:
-                logger.debug("ℹ️ Última página alcançada")
-                break
-            
-            page += 1
-            
-            # Proteção contra loop infinito
-            if page > 50:
-                logger.warning("⚠️ Limite de 50 páginas alcançado")
+            except Exception as e:
+                print(f"   ❌ Erro inesperado: {e}")
                 break
         
-        return all_results[:max_results]  # Garante o limite
+        return all_results
+
     
     def _parse_items(self, items: List[Dict]) -> List[Dict]:
         """
         Processa e valida itens retornados pela API
-        
-        Args:
-            items: Lista de itens brutos da API
-            
-        Returns:
-            Lista de itens processados e validados
         """
         parsed = []
         
         for item in items:
             try:
-                # Extrai e valida preço
                 price = self._extract_price(item)
                 if price is None or price <= 0:
                     continue
                 
-                # Extrai e valida data
                 date = self._extract_date(item)
                 if date is None:
                     continue
                 
-                # Monta resultado
                 result = {
                     "source": "Painel de Preços",
                     "price": price,
@@ -318,7 +230,6 @@ class PainelPrecosClient:
     def _extract_price(self, item: Dict) -> Optional[float]:
         """Extrai preço unitário"""
         try:
-            # Tenta vários campos possíveis
             price = (
                 item.get("valor_unitario") or
                 item.get("valor_unitario_homologado") or
@@ -346,7 +257,6 @@ class PainelPrecosClient:
             if not date_str:
                 return None
             
-            # Remove timezone se houver (ex: "2024-01-01T00:00:00Z")
             date_str = date_str.split("T")[0]
             
             return datetime.strptime(date_str, "%Y-%m-%d")

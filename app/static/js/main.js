@@ -1,4 +1,3 @@
-
 // static/js/main.js
 // Preço Ágil - JavaScript Principal
 
@@ -40,6 +39,42 @@ function selecionarItem(codigo, tipo, descricao) {
 }
 
 /**
+ * Lógica do Theme Switcher
+ */
+function setupThemeSwitcher() {
+    const themeSwitcher = document.getElementById('theme-switcher');
+    const themeIcon = document.getElementById('theme-icon');
+    const htmlElement = document.documentElement;
+
+    // Função para aplicar o tema
+    const applyTheme = (theme) => {
+        if (theme === 'dark') {
+            htmlElement.setAttribute('data-bs-theme', 'dark');
+            themeIcon.classList.remove('bi-moon-stars-fill');
+            themeIcon.classList.add('bi-sun-fill');
+        } else {
+            htmlElement.setAttribute('data-bs-theme', 'light');
+            themeIcon.classList.remove('bi-sun-fill');
+            themeIcon.classList.add('bi-moon-stars-fill');
+        }
+    };
+
+    // Verifica o tema salvo no localStorage
+    const savedTheme = localStorage.getItem('theme') || 'light';
+    applyTheme(savedTheme);
+
+    // Adiciona o event listener para o botão
+    themeSwitcher.addEventListener('click', () => {
+        const currentTheme = htmlElement.getAttribute('data-bs-theme');
+        const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+        
+        localStorage.setItem('theme', newTheme);
+        applyTheme(newTheme);
+    });
+}
+
+
+/**
  * Inicialização quando DOM carrega
  */
 document.addEventListener('DOMContentLoaded', function() {
@@ -52,6 +87,9 @@ document.addEventListener('DOMContentLoaded', function() {
     
     // Auto-fechar alerts
     configurarAlerts();
+    
+    // Configura o theme switcher
+    setupThemeSwitcher();
 });
 
 /**
