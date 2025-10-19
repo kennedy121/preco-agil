@@ -219,7 +219,7 @@ class PainelPrecosClient:
                 "codigo_item": item_code,
                 "tipo": item_type,
                 "offset": page * self.MAX_ITEMS_PER_REQUEST,
-                "limit": self.MAX_ITEMS_PER_REQUIS
+                "limit": self.MAX_ITEMS_PER_REQUEST
             }
             
             # Filtro por região
@@ -256,7 +256,7 @@ class PainelPrecosClient:
             logger.debug(f"✅ Página {page + 1}: {len(parsed)} itens válidos")
             
             # Se retornou menos que o limite, não há mais páginas
-            if len(items) < self.MAX_ITEMS_PER_REQUIS:
+            if len(items) < self.MAX_ITEMS_PER_REQUEST:
                 logger.debug("ℹ️ Última página alcançada")
                 break
             
