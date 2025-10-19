@@ -227,22 +227,38 @@ class EnhancedPriceCollector:
         
         return result
     
-    def _collect_from_painel(
-        self, 
-        item_code: str, 
-        catalog_type: str, 
-        region: Optional[str]
-    ) -> List[Dict]:
-        """Coleta do Painel de Preços com tratamento de erro"""
+    def _collect_from_painel(self, item_code: str, catalog_type: str, region: Optional[str]) -> List[Dict]:
+        """
+        Coleta preços do Painel com tratamento de erro robusto
+        
+        Args:
+            item_code: Código CATMAT/CATSER
+            catalog_type: 'material' ou 'servico'
+            region: UF (opcional)
+            
+        Returns:
+            Lista de preços ou lista vazia em caso de erro
+        """
         try:
-            return self.painel_precos.search_by_item(
-                item_code=item_code,
-                item_type=catalog_type,
-                region=region
-            )
+                return self.painel_precos.search_by_item(
+                    item_code=item_code,
+                    item_type=catalog_type,
+                    region=region,
+                    max_days=365,  # Pode vir de Config
+                    max_results=500
+                )
+        except ValueError as e:
+                # Erro de validação (não deveria acontecer, mas...)
+                print(f"   ❌ Erro de validação: {e}")
+                return []
+        except ConnectionError as e:
+                # Erro de conexão/timeout/rate limit
+                print(f"   ⚠️ Erro de conexão: {e}")
+                return []
         except Exception as e:
-            print(f"   ⚠️ Erro: {e}")
-            return []
+                # Qualquer outro erro
+                print(f"   ❌ Erro inesperado no Painel: {e}")
+                return []
     
     def _collect_from_pncp(
         self, 

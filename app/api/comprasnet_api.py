@@ -1,104 +1,72 @@
 
 # app/api/comprasnet_api.py
-import requests
+"""
+Cliente para ComprasNet
+Documentação: https://compras.dados.gov.br/docs/
+"""
+
+import logging
 from typing import List, Dict
 from datetime import datetime
-import time
+from app.api.base_client import BaseAPIClient
 
-class ComprasNetClient:
+logger = logging.getLogger(__name__)
+
+
+class ComprasNetClient(BaseAPIClient):
     """Cliente para API do ComprasNet"""
     
     def __init__(self):
-        self.base_url = "http://compras.dados.gov.br/compradores/v1"
-        self.session = requests.Session()
-        self.session.headers.update({
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0'
-        })
+        super().__init__(
+            base_url='http://compras.dados.gov.br/compradores/v1',
+            timeout=15,
+            max_retries=2,
+            rate_limit_calls=20,  # Mais conservador
+            cache_ttl=3600
+        )
     
     def search_material(self, item_code: str, max_pages: int = 2) -> List[Dict]:
-        """Busca materiais no ComprasNet"""
-        
-        print(f"\n--- [DEBUG: COMPRASNET MATERIAL] ---")
-        
-        endpoint = f"{self.base_url}/materiais"
-        
-        all_items = []
-        
-        for page in range(1, max_pages + 1):
-            params = {
-                'codigoItemMaterial': item_code,
-                'pagina': page
-            }
-            
-            print(f"- Página {page}: {endpoint}")
-            print(f"- Parâmetros: {params}")
-            
-            try:
-                response = self.session.get(
-                    endpoint, 
-                    params=params, 
-                    timeout=15
-                )
-                
-                print(f"- Status: {response.status_code}")
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get('_embedded', {}).get('materiais', [])
-                    
-                    print(f"- Itens na página: {len(items)}")
-                    
-                    if not items:
-                        break
-                    
-                    all_items.extend(self._parse_items(items))
-                    time.sleep(0.5)  # Rate limiting
-                else:
-                    print(f"- ERRO: Status {response.status_code}")
-                    break
-                    
-            except Exception as e:
-                print(f"- ERRO: {str(e)[:100]}")
-                break
-        
-        print(f"- Total de itens coletados: {len(all_items)}")
-        return all_items
+        """Busca materiais por código CATMAT"""
+        logger.info(f"Buscando materiais ComprasNet: {item_code}")
+        return self._search_items('/materiais', 'codigoItemMaterial', item_code, max_pages, 'materiais')
     
     def search_service(self, item_code: str, max_pages: int = 2) -> List[Dict]:
-        """Busca serviços no ComprasNet"""
-        
-        print(f"\n--- [DEBUG: COMPRASNET SERVICO] ---")
-        
-        endpoint = f"{self.base_url}/servicos"
-        
+        """Busca serviços por código CATSER"""
+        logger.info(f"Buscando serviços ComprasNet: {item_code}")
+        return self._search_items('/servicos', 'codigoItemServico', item_code, max_pages, 'servicos')
+    
+    def _search_items(
+        self, 
+        endpoint: str, 
+        param_name: str, 
+        item_code: str, 
+        max_pages: int,
+        data_key: str
+    ) -> List[Dict]:
+        """Busca itens com paginação"""
         all_items = []
         
         for page in range(1, max_pages + 1):
             params = {
-                'codigoItemServico': item_code,
+                param_name: item_code,
                 'pagina': page
             }
             
-            print(f"- Página {page}: {endpoint}")
+            data = self.get(endpoint, params)
             
-            try:
-                response = self.session.get(endpoint, params=params, timeout=15)
-                
-                if response.status_code == 200:
-                    data = response.json()
-                    items = data.get('_embedded', {}).get('servicos', [])
-                    
-                    if not items:
-                        break
-                    
-                    all_items.extend(self._parse_items(items))
-                    time.sleep(0.5)
-                    
-            except Exception as e:
-                print(f"- ERRO: {str(e)[:100]}")
+            if not data:
                 break
+            
+            items = data.get('_embedded', {}).get(data_key, [])
+            
+            if not items:
+                logger.debug(f"Página {page} sem resultados, parando")
+                break
+            
+            all_items.extend(self._parse_items(items))
+            logger.debug(f"Página {page}: {len(items)} itens")
         
+        logger.info(f"ComprasNet: total de {len(all_items)} itens coletados")
         return all_items
     
     def _parse_items(self, items: List[Dict]) -> List[Dict]:
@@ -113,19 +81,21 @@ class ComprasNetClient:
                 
                 data_str = item.get('dataResultadoCompra', '')
                 if data_str:
-                    data_obj = datetime.fromisoformat(data_str.split('T')[0])
+                    date_obj = datetime.fromisoformat(data_str.split('T')[0])
                 else:
                     continue
                 
                 parsed.append({
                     'source': 'ComprasNet',
                     'price': float(valor),
-                    'date': data_obj,
+                    'date': date_obj,
                     'supplier': item.get('fornecedor', 'N/A'),
                     'entity': item.get('orgao', 'N/A'),
                     'region': item.get('uf', 'N/A')
                 })
-            except (ValueError, KeyError, TypeError):
+                
+            except (ValueError, KeyError, TypeError) as e:
+                logger.debug(f"Item ignorado: {e}")
                 continue
         
         return parsed

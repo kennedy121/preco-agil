@@ -232,3 +232,74 @@ class ChartGenerator:
         )
         
         return fig.to_html(full_html=False, include_plotlyjs='cdn')
+
+    def create_comparison_charts(self, pesquisas: List) -> Dict[str, str]:
+        """Gera gráficos comparativos entre múltiplas pesquisas."""
+        charts = {}
+        labels = [f"#{p.id} - {p.item_code}" for p in pesquisas]
+
+        # 1. Comparação de Valores Estimados (Barra)
+        valores = [p.estimated_value for p in pesquisas]
+        fig_valores = go.Figure(data=[go.Bar(
+            x=labels,
+            y=valores,
+            text=[f"R$ {v:,.2f}" for v in valores],
+            textposition='auto',
+            marker_color=self.colors['primary']
+        )])
+        fig_valores.update_layout(title_text="Comparação de Valores Estimados", template='plotly_white', height=400)
+        charts['valores'] = fig_valores.to_html(full_html=False, include_plotlyjs='cdn')
+
+        # 2. Comparação de Tamanho da Amostra (Barra)
+        amostras = [p.sample_size for p in pesquisas]
+        fig_amostras = go.Figure(data=[go.Bar(
+            x=labels,
+            y=amostras,
+            text=amostras,
+            textposition='auto',
+            marker_color=self.colors['info']
+        )])
+        fig_amostras.update_layout(title_text="Comparação de Tamanho da Amostra", template='plotly_white', height=400)
+        charts['amostras'] = fig_amostras.to_html(full_html=False, include_plotlyjs='cdn')
+
+        # 3. Radar de Métricas Estatísticas
+        fig_radar = go.Figure()
+        radar_categories = ['Mediana', 'Média', 'Média Saneada', 'CV (%)', 'Mínimo', 'Máximo']
+        
+        # Normalização dos dados para o radar
+        all_stats = [p.stats for p in pesquisas]
+        max_values = {
+            'median': max([s.get('median', 0) for s in all_stats]),
+            'mean': max([s.get('mean', 0) for s in all_stats]),
+            'sane_mean': max([s.get('sane_mean', 0) for s in all_stats]),
+            'coefficient_variation': max([s.get('coefficient_variation', 0) for s in all_stats]) or 1,
+            'min': max([s.get('min', 0) for s in all_stats]),
+            'max': max([s.get('max', 0) for s in all_stats]),
+        }
+
+        for p in pesquisas:
+            stats = p.stats
+            values = [
+                stats.get('median', 0) / max_values['median'] if max_values['median'] else 0,
+                stats.get('mean', 0) / max_values['mean'] if max_values['mean'] else 0,
+                stats.get('sane_mean', 0) / max_values['sane_mean'] if max_values['sane_mean'] else 0,
+                stats.get('coefficient_variation', 0) / max_values['coefficient_variation'] if max_values['coefficient_variation'] else 0,
+                stats.get('min', 0) / max_values['min'] if max_values['min'] else 0,
+                stats.get('max', 0) / max_values['max'] if max_values['max'] else 0,
+            ]
+            fig_radar.add_trace(go.Scatterpolar(
+                r=values,
+                theta=radar_categories,
+                fill='toself',
+                name=f"Pesquisa #{p.id}"
+            ))
+
+        fig_radar.update_layout(
+            polar=dict(radialaxis=dict(visible=True, range=[0, 1])),
+            title_text="Radar Comparativo de Métricas Estatísticas (Normalizado)",
+            template='plotly_white',
+            height=500
+        )
+        charts['radar'] = fig_radar.to_html(full_html=False, include_plotlyjs='cdn')
+
+        return charts

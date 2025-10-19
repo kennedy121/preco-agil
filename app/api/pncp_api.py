@@ -1,26 +1,35 @@
 
 # app/api/pncp_api.py
-import requests
+"""
+Cliente para PNCP - Portal Nacional de Contratações Públicas
+Documentação: https://pncp.gov.br/api/swagger-ui/index.html
+"""
+
 import os
+import logging
 from typing import List, Dict, Optional
 from datetime import datetime, timedelta
+from app.api.base_client import BaseAPIClient
 
-class PNCPClient:
-    """Cliente para API do PNCP - Portal Nacional de Contratações Públicas"""
+logger = logging.getLogger(__name__)
+
+
+class PNCPClient(BaseAPIClient):
+    """Cliente para API do PNCP"""
     
     def __init__(self):
-        self.base_url = "https://pncp.gov.br/api/consulta/v1"
-        self.session = requests.Session()
-        self.session.headers.update({
-            'Accept': 'application/json',
-            'User-Agent': 'Mozilla/5.0'
-        })
+        super().__init__(
+            base_url='https://pncp.gov.br/api/consulta/v1',
+            timeout=30,
+            max_retries=3,
+            cache_ttl=3600  # 1 hora
+        )
         
-        # Adiciona a chave da API se estiver disponível no ambiente
+        # Chave de API (se necessário)
         api_key = os.getenv('PNCP_API_KEY')
         if api_key:
             self.session.headers.update({'chave-api-dados': api_key})
-            print("🔑 Chave da API do PNCP configurada.")
+            logger.info("✅ Chave da API do PNCP configurada")
     
     def search_contracts(
         self,
@@ -29,11 +38,19 @@ class PNCPClient:
         max_days: int = 365,
         region: Optional[str] = None
     ) -> List[Dict]:
-        """Busca contratos no PNCP"""
+        """
+        Busca contratos por código de item
         
-        # O debug foi removido pois a causa raiz foi encontrada
+        Args:
+            item_code: Código CATMAT/CATSER
+            catalog_type: 'material' ou 'servico'
+            max_days: Período máximo em dias
+            region: UF (opcional)
         
-        endpoint = f"{self.base_url}/contratos"
+        Returns:
+            Lista de contratos formatados
+        """
+        endpoint = '/contratos'
         date_limit = datetime.now() - timedelta(days=max_days)
         
         params = {
@@ -46,52 +63,58 @@ class PNCPClient:
         if region:
             params['uf'] = region
         
-        try:
-            response = self.session.get(endpoint, params=params, timeout=15)
-            
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                    contracts = data.get('data', [])
-                    return self._parse_contracts(contracts)
-                except ValueError:
-                    return [] # Falha no JSON
-            else:
-                return [] # Status de erro
+        logger.info(f"Buscando contratos PNCP: item={item_code}, tipo={catalog_type}")
         
-        except requests.exceptions.RequestException:
-            return [] # Erro de conexão/timeout
+        data = self.get(endpoint, params)
+        
+        if not data:
+            logger.warning("Nenhum dado retornado do PNCP")
+            return []
+        
+        contracts = data.get('data', [])
+        logger.info(f"PNCP retornou {len(contracts)} contratos brutos")
+        
+        parsed = self._parse_contracts(contracts)
+        logger.info(f"PNCP: {len(parsed)} contratos válidos após parsing")
+        
+        return parsed
     
     def _parse_contracts(self, contracts: List[Dict]) -> List[Dict]:
-        """Processa a lista de contratos retornada pela API do PNCP."""
+        """Processa contratos retornados"""
         items = []
         
         for contract in contracts:
             try:
-                # Prioriza valor unitário, se não, global
+                # Valor (prioriza unitário)
                 valor = contract.get('valorUnitarioContratado') or contract.get('valorGlobal')
-                
                 if not valor or float(valor) <= 0:
                     continue
                 
+                # Data
                 data_str = contract.get('dataAssinatura')
-                data_obj = datetime.fromisoformat(data_str.split('T')[0]) if data_str else datetime.now()
+                if data_str:
+                    date_obj = datetime.fromisoformat(data_str.split('T')[0])
+                else:
+                    continue
                 
                 supplier_info = contract.get('fornecedor', {})
+                entity_info = contract.get('orgaoEntidade', {})
+                municipio_info = contract.get('municipio', {})
                 
                 items.append({
                     'source': 'PNCP',
                     'price': float(valor),
-                    'date': data_obj,
+                    'date': date_obj,
                     'supplier': supplier_info.get('nome', 'N/A'),
                     'supplier_cnpj': supplier_info.get('documento', 'N/A'),
-                    'entity': contract.get('orgaoEntidade', {}).get('razaoSocial', 'N/A'),
-                    'region': contract.get('municipio', {}).get('uf', {}).get('sigla'),
+                    'entity': entity_info.get('razaoSocial', 'N/A'),
+                    'region': municipio_info.get('uf', {}).get('sigla'),
                     'description': contract.get('objetoContrato', 'N/A'),
                     'url': f"https://pncp.gov.br/app/contrato/{contract.get('id')}"
                 })
-            except (ValueError, KeyError, TypeError):
-                # Pula contrato se algum campo essencial estiver faltando ou mal formatado
+                
+            except (ValueError, KeyError, TypeError) as e:
+                logger.debug(f"Contrato ignorado (erro no parse): {e}")
                 continue
         
         return items

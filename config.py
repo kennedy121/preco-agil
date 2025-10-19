@@ -18,7 +18,16 @@ class Config:
     # APIs Governamentais
     PNCP_API_URL = os.getenv('PNCP_API_URL', 'https://pncp.gov.br/api')
     COMPRASNET_API_URL = os.getenv('COMPRASNET_API_URL', 'https://compras.dados.gov.br/api')
-    PAINEL_PRECOS_URL = 'https://paineldeprecos.planejamento.gov.br/api/v1'
+    PAINEL_PRECOS_URL = os.getenv(
+        "PAINEL_PRECOS_URL",
+        "https://paineldeprecos.planejamento.gov.br/api/v1"
+    )
+    PAINEL_PRECOS_TIMEOUT = int(os.getenv("PAINEL_PRECOS_TIMEOUT", "30"))
+    PAINEL_PRECOS_MAX_RESULTS = int(os.getenv("PAINEL_PRECOS_MAX_RESULTS", "1000"))
+    PAINEL_PRECOS_CACHE_TTL = int(os.getenv("PAINEL_PRECOS_CACHE_TTL", "3600"))
+    
+    # Rate limiting
+    PAINEL_PRECOS_RATE_LIMIT = float(os.getenv("PAINEL_PRECOS_RATE_LIMIT", "0.5"))
     
     # Banco de dados
     SQLALCHEMY_DATABASE_URI = os.getenv('DATABASE_URL', 'sqlite:///preco_agil.db')

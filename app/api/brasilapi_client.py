@@ -1,170 +1,99 @@
-# -*- coding: utf-8 -*-
+
+# app/api/brasilapi_client.py
 """
-Cliente BrasilAPI - Camada de Abstração Unificada
-Preço Ágil
-
-Fornece interface estável e simplificada para múltiplas APIs governamentais
-Fallback automático quando APIs oficiais falham
-
-Fonte: https://github.com/BrasilAPI/BrasilAPI
+Cliente para BrasilAPI - Validação de CNPJ, CEP, Bancos
+Documentação: https://brasilapi.com.br/docs
 """
 
-import requests
+import logging
 from typing import Dict, Optional
-from datetime import datetime
+from app.api.base_client import BaseAPIClient
 
-class BrasilAPIClient:
-    """
-    Cliente para BrasilAPI - Agregador mantido pela comunidade
-    
-    VANTAGENS:
-    - Interface unificada e estável
-    - Fallback automático
-    - Sem necessidade de múltiplas chaves de API
-    - Cache inteligente
-    - Rate limiting gerenciado
-    """
+logger = logging.getLogger(__name__)
+
+
+class BrasilAPIClient(BaseAPIClient):
+    """Cliente para BrasilAPI com cache e retry automáticos"""
     
     def __init__(self):
-        self.base_url = "https://brasilapi.com.br/api"
-        self.session = requests.Session()
-        self.session.headers.update({
-            'Accept': 'application/json',
-            'User-Agent': 'PrecoAgil/1.0'
-        })
-        self._cache = {}
+        super().__init__(
+            base_url='https://brasilapi.com.br/api',
+            timeout=10,
+            cache_ttl=86400  # 24 horas para dados que mudam pouco
+        )
     
     def get_cnpj_info(self, cnpj: str) -> Optional[Dict]:
         """
-        Obtém informações de CNPJ (Receita Federal)
-        Útil para validar fornecedores
+        Obtém informações de CNPJ da Receita Federal
         
         Args:
-            cnpj: CNPJ do fornecedor (apenas números ou com formatação)
+            cnpj: CNPJ com ou sem formatação
         
         Returns:
-            Informações completas do CNPJ ou None se não encontrado
+            Dados do CNPJ ou None se não encontrado
         """
         # Remove formatação
         cnpj_clean = ''.join(filter(str.isdigit, cnpj))
         
         if len(cnpj_clean) != 14:
-            print(f"  ⚠️ CNPJ inválido: {cnpj}")
+            logger.warning(f"CNPJ inválido (tamanho incorreto): {cnpj}")
             return None
         
-        # Verifica cache
-        if cnpj_clean in self._cache:
-            print(f"  💾 CNPJ {cnpj_clean} recuperado do cache")
-            return self._cache[cnpj_clean]
+        endpoint = f'/cnpj/v1/{cnpj_clean}'
+        data = self.get(endpoint)
         
-        endpoint = f"{self.base_url}/cnpj/v1/{cnpj_clean}"
-        
-        try:
-            response = self.session.get(endpoint, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            result = {
-                'cnpj': data.get('cnpj'),
-                'razao_social': data.get('razao_social'),
-                'nome_fantasia': data.get('nome_fantasia'),
-                'situacao': data.get('descricao_situacao_cadastral'),
-                'data_situacao': data.get('data_situacao_cadastral'),
-                'uf': data.get('uf'),
-                'municipio': data.get('municipio'),
-                'bairro': data.get('bairro'),
-                'logradouro': data.get('logradouro'),
-                'numero': data.get('numero'),
-                'cep': data.get('cep'),
-                'email': data.get('email'),
-                'telefone': data.get('ddd_telefone_1'),
-                'porte': data.get('porte'),
-                'natureza_juridica': data.get('natureza_juridica'),
-                'atividade_principal': data.get('cnae_fiscal_descricao'),
-                'capital_social': data.get('capital_social')
-            }
-            
-            # Armazena em cache
-            self._cache[cnpj_clean] = result
-            
-            return result
-        
-        except requests.exceptions.RequestException as e:
-            print(f"  ⚠️ Erro ao consultar CNPJ {cnpj_clean} via BrasilAPI: {e}")
+        if not data:
             return None
+        
+        # Formata resposta padronizada
+        return {
+            'cnpj': data.get('cnpj'),
+            'razao_social': data.get('razao_social'),
+            'nome_fantasia': data.get('nome_fantasia'),
+            'situacao': data.get('descricao_situacao_cadastral'),
+            'data_situacao': data.get('data_situacao_cadastral'),
+            'uf': data.get('uf'),
+            'municipio': data.get('municipio'),
+            'bairro': data.get('bairro'),
+            'logradouro': data.get('logradouro'),
+            'numero': data.get('numero'),
+            'cep': data.get('cep'),
+            'email': data.get('email'),
+            'telefone': data.get('ddd_telefone_1'),
+            'porte': data.get('porte'),
+            'natureza_juridica': data.get('natureza_juridica'),
+            'atividade_principal': data.get('cnae_fiscal_descricao'),
+            'capital_social': data.get('capital_social')
+        }
     
     def get_cep_info(self, cep: str) -> Optional[Dict]:
-        """
-        Obtém informações de CEP
-        Útil para validar endereços de fornecedores/órgãos
-        
-        Args:
-            cep: CEP (apenas números ou com hífen)
-        
-        Returns:
-            Informações do endereço ou None
-        """
-        # Remove formatação
+        """Obtém informações de CEP"""
         cep_clean = ''.join(filter(str.isdigit, cep))
         
         if len(cep_clean) != 8:
+            logger.warning(f"CEP inválido: {cep}")
             return None
         
-        # Verifica cache
-        if f"cep_{cep_clean}" in self._cache:
-            return self._cache[f"cep_{cep_clean}"]
-        
-        endpoint = f"{self.base_url}/cep/v2/{cep_clean}"
-        
-        try:
-            response = self.session.get(endpoint, timeout=10)
-            response.raise_for_status()
-            
-            data = response.json()
-            
-            # Armazena em cache
-            self._cache[f"cep_{cep_clean}"] = data
-            
-            return data
-        
-        except requests.exceptions.RequestException as e:
-            print(f"  ⚠️ Erro ao consultar CEP {cep_clean}: {e}")
-            return None
+        endpoint = f'/cep/v2/{cep_clean}'
+        return self.get(endpoint)
     
     def get_banco_info(self, codigo_banco: str) -> Optional[Dict]:
-        """
-        Obtém informações de banco
-        Útil para validar dados bancários de fornecedores
-        
-        Args:
-            codigo_banco: Código do banco (3 dígitos)
-        
-        Returns:
-            Informações do banco ou None
-        """
+        """Obtém informações de banco"""
         codigo_clean = ''.join(filter(str.isdigit, codigo_banco)).zfill(3)
-        
-        endpoint = f"{self.base_url}/banks/v1/{codigo_clean}"
-        
-        try:
-            response = self.session.get(endpoint, timeout=10)
-            response.raise_for_status()
-            
-            return response.json()
-        
-        except requests.exceptions.RequestException:
-            return None
+        endpoint = f'/banks/v1/{codigo_clean}'
+        return self.get(endpoint)
     
     def validate_supplier(self, cnpj: str) -> Dict:
         """
-        Valida fornecedor usando múltiplas checagens
-        
-        Args:
-            cnpj: CNPJ do fornecedor
+        Valida fornecedor com checagens completas
         
         Returns:
-            Dicionário com status de validação completo
+            {
+                'valid': bool,
+                'reason': str (se inválido),
+                'cnpj_info': dict (se válido),
+                'warnings': list
+            }
         """
         if not cnpj:
             return {
@@ -190,14 +119,10 @@ class BrasilAPIClient:
                 'cnpj_info': cnpj_info
             }
         
-        # Verifica se não está em débito (se disponível)
+        # Coleta warnings (não impedem, mas alertam)
         warnings = []
-        
-        # Aviso se não tem email
         if not cnpj_info.get('email'):
             warnings.append('Email não cadastrado')
-        
-        # Aviso se não tem telefone
         if not cnpj_info.get('telefone'):
             warnings.append('Telefone não cadastrado')
         
@@ -206,8 +131,3 @@ class BrasilAPIClient:
             'cnpj_info': cnpj_info,
             'warnings': warnings
         }
-    
-    def clear_cache(self):
-        """Limpa o cache interno"""
-        self._cache.clear()
-        print("  🧹 Cache do BrasilAPI limpo")

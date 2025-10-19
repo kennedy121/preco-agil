@@ -1,3 +1,7 @@
+# -*- coding: utf-8 -*-
+"""
+Context Processors - Injeta variáveis globais em todos os templates
+"""
 
 from config import Config
 
